@@ -1,0 +1,63 @@
+services:
+  cli-proxy-api:
+    image: ${CLI_PROXY_IMAGE:-eceasy/cli-proxy-api:latest}
+    pull_policy: always
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${VERSION:-dev}
+        COMMIT: ${COMMIT:-none}
+        BUILD_DATE: ${BUILD_DATE:-unknown}
+    container_name: cli-proxy-api
+    # env_file:
+    #   - .env
+    environment:
+      DEPLOY: ${DEPLOY:-}
+      # PostgreSQL-backed config/auth store.
+      # When PGSTORE_DSN is set, the source of truth for config + auth is Postgres
+      # (mirrored into the ./pgstore spool dir below). The mounted config.yaml is
+      # NOT read on startup in this mode. To remove the DB and go back to plain
+      # file storage, comment out the three PGSTORE_* lines and the postgres service.
+      PGSTORE_DSN: "postgresql://${POSTGRES_USER:-cliproxy}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-cliproxy}?sslmode=disable"
+      PGSTORE_SCHEMA: ${PGSTORE_SCHEMA:-public}
+      PGSTORE_LOCAL_PATH: /CLIProxyAPI
+    ports:
+      - "8317:8317"
+      - "8085:8085"
+      - "1455:1455"
+      - "54545:54545"
+      - "51121:51121"
+      - "11451:11451"
+    volumes:
+      - ${CLI_PROXY_CONFIG_PATH:-./config.yaml}:/CLIProxyAPI/config.yaml
+      - ${CLI_PROXY_AUTH_PATH:-./auths}:/root/.cli-proxy-api
+      - ${CLI_PROXY_LOG_PATH:-./logs}:/CLIProxyAPI/logs
+      # Postgres spool mirror: holds config/auth files rebuilt from the DB on each
+      # start. On the very first start (empty DB) the config here seeds the DB, so
+      # you can pre-place ./pgstore/config/config.yaml to bootstrap initial settings.
+      - ${CLI_PROXY_PGSTORE_PATH:-./pgstore}:/CLIProxyAPI/pgstore
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: cli-proxy-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cliproxy}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-cliproxy}
+    volumes:
+      - ${CLI_PROXY_PG_DATA_PATH:-./pgdata}:/var/lib/postgresql/data
+    # Port is intentionally NOT published to the host; Postgres is only reachable
+    # on the internal compose network by cli-proxy-api. Uncomment to expose it.
+    # ports:
+    #   - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cliproxy} -d ${POSTGRES_DB:-cliproxy}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
