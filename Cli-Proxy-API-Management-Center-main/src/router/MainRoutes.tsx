@@ -12,6 +12,7 @@ import { PluginStorePage } from '@/features/plugins/PluginStorePage';
 import { ConfigPage } from '@/features/config/ConfigPage';
 import { LogsPage } from '@/pages/LogsPage';
 import { SystemPage } from '@/pages/SystemPage';
+import { ProxyPoolPage } from '@/pages/ProxyPoolPage';
 import { useAuthStore } from '@/stores';
 
 const createMainRoutes = (supportsPlugin: boolean) => [
@@ -41,6 +42,7 @@ const createMainRoutes = (supportsPlugin: boolean) => [
         { path: '/plugin-store', element: <Navigate to="/" replace /> },
       ]),
   { path: '/config', element: <ConfigPage /> },
+  { path: '/proxy-pool', element: <ProxyPoolPage /> },
   { path: '/logs', element: <LogsPage /> },
   { path: '/system', element: <SystemPage /> },
   { path: '*', element: <Navigate to="/" replace /> },

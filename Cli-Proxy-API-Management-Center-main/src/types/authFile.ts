@@ -51,6 +51,9 @@ export interface AuthFileItem {
   failureCount?: number;
   recent_requests?: RecentRequestBucket[];
   recentRequests?: RecentRequestBucket[];
+  /** 是否已绑定代理，由后端根据 proxy_url 是否非空下发。 */
+  has_proxy?: boolean;
+  proxy_url?: string;
   [key: string]: unknown;
 }
 

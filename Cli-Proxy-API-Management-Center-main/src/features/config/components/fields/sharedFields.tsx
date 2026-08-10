@@ -4,6 +4,8 @@
 
 import { useTranslation } from 'react-i18next';
 import { Input } from '@/components/ui/Input';
+import { AutocompleteInput } from '@/components/ui/AutocompleteInput';
+import { useProxyPoolOptions } from '@/hooks/useProxyPoolOptions';
 import type { VisualConfigValues } from '@/types/visualConfig';
 import { ApiKeysCardEditor } from '../blocks/ApiKeysCardEditor';
 import { FieldAnchor, FieldGroup, ToggleRow } from './FieldPrimitives';
@@ -53,13 +55,15 @@ export function PortField({
 
 export function ProxyUrlField({ values, disabled, onChange }: SharedFieldProps) {
   const { t } = useTranslation();
+  const proxyPoolOptions = useProxyPoolOptions();
   return (
     <FieldAnchor fieldId="proxyUrl">
-      <Input
+      <AutocompleteInput
         label={t('config_management.visual.sections.network.proxy_url')}
         placeholder="socks5://user:pass@127.0.0.1:1080/"
         value={values.proxyUrl}
-        onChange={(e) => onChange({ proxyUrl: e.target.value })}
+        options={proxyPoolOptions}
+        onChange={(value) => onChange({ proxyUrl: value })}
         disabled={disabled}
       />
     </FieldAnchor>

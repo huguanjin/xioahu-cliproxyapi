@@ -4,8 +4,10 @@ import { Sheet } from '@/components/ui/Sheet';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { Input } from '@/components/ui/Input';
+import { AutocompleteInput } from '@/components/ui/AutocompleteInput';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import { useNotificationStore } from '@/stores';
+import { useProxyPoolOptions } from '@/hooks/useProxyPoolOptions';
 import type {
   PrefixProxyEditorField,
   PrefixProxyEditorFieldValue,
@@ -52,6 +54,7 @@ export function AuthFileDetailsSheet(props: AuthFileDetailsSheetProps) {
   const { disableControls, editor, updatedText, dirty, onClose, onCopyText, onSave, onChange } =
     props;
   const showConfirmation = useNotificationStore((state) => state.showConfirmation);
+  const proxyPoolOptions = useProxyPoolOptions();
 
   const confirmClose = useCallback((): boolean | Promise<boolean> => {
     if (!dirty || editor?.saving === true) return true;
@@ -181,12 +184,13 @@ export function AuthFileDetailsSheet(props: AuthFileDetailsSheetProps) {
                     disabled={disableControls || editor.saving || !editor.json}
                     onChange={(e) => onChange('prefix', e.target.value)}
                   />
-                  <Input
+                  <AutocompleteInput
                     label={t('auth_files.proxy_url_label')}
                     value={editor.proxyUrl}
                     placeholder={t('auth_files.proxy_url_placeholder')}
+                    options={proxyPoolOptions}
                     disabled={disableControls || editor.saving || !editor.json}
-                    onChange={(e) => onChange('proxyUrl', e.target.value)}
+                    onChange={(value) => onChange('proxyUrl', value)}
                   />
                   <Input
                     label={t('auth_files.priority_label')}

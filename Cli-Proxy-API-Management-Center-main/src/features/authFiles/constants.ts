@@ -234,6 +234,14 @@ export function isRuntimeOnlyAuthFile(file: AuthFileItem): boolean {
   return false;
 }
 
+/** 是否已绑定代理（proxy_url）。后端已下发 has_proxy 布尔字段，proxy_url 作为回退。 */
+export function hasAuthFileProxy(file: AuthFileItem): boolean {
+  const flag = file['has_proxy'];
+  if (typeof flag === 'boolean') return flag;
+  const proxyUrl = file['proxy_url'] ?? file.proxyUrl;
+  return typeof proxyUrl === 'string' && proxyUrl.trim().length > 0;
+}
+
 export const formatModified = (item: AuthFileItem): string => {
   const raw = item['modtime'] ?? item.modified;
   if (!raw) return '-';

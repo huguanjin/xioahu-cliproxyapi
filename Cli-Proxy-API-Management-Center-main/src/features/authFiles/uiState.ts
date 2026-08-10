@@ -14,6 +14,7 @@ export type AuthFilesUiState = {
   problemOnly?: boolean;
   disabledOnly?: boolean;
   statusFilterMode?: AuthFilesStatusFilterMode;
+  noProxyOnly?: boolean;
   compactMode?: boolean;
   search?: string;
   page?: number;

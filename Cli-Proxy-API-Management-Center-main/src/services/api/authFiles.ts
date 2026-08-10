@@ -44,6 +44,12 @@ type AuthFileBatchDeleteResponse = {
   files?: unknown;
   failed?: unknown;
 };
+type AuthFileBatchPatchResponse = {
+  status?: string;
+  updated?: number;
+  files?: unknown;
+  failed?: unknown;
+};
 type AuthFileBatchUploadResult = {
   status: string;
   uploaded: number;
@@ -53,6 +59,12 @@ type AuthFileBatchUploadResult = {
 type AuthFileBatchDeleteResult = {
   status: string;
   deleted: number;
+  files: string[];
+  failed: AuthFileBatchFailure[];
+};
+type AuthFileBatchPatchResult = {
+  status: string;
+  updated: number;
   files: string[];
   failed: AuthFileBatchFailure[];
 };
@@ -130,6 +142,21 @@ const normalizeBatchDeleteResponse = (
   return {
     status: payload?.status ?? (failed.length > 0 ? 'partial' : 'ok'),
     deleted: payload?.deleted ?? (inferFromRequest ? requestedNames.length : 0),
+    files: filesFromPayload.length ? filesFromPayload : inferFromRequest ? [...requestedNames] : [],
+    failed,
+  };
+};
+
+const normalizeBatchPatchResponse = (
+  payload: AuthFileBatchPatchResponse | undefined,
+  requestedNames: string[]
+): AuthFileBatchPatchResult => {
+  const failed = normalizeBatchFailures(payload?.failed);
+  const filesFromPayload = normalizeBatchFileNames(payload?.files);
+  const inferFromRequest = payload?.updated === undefined && failed.length === 0;
+  return {
+    status: payload?.status ?? (failed.length > 0 ? 'partial' : 'ok'),
+    updated: payload?.updated ?? (inferFromRequest ? requestedNames.length : 0),
     files: filesFromPayload.length ? filesFromPayload : inferFromRequest ? [...requestedNames] : [],
     failed,
   };
@@ -449,6 +476,22 @@ export const authFilesApi = {
       data: { names: requestedNames },
     });
     return normalizeBatchDeleteResponse(payload, requestedNames);
+  },
+
+  batchPatchFields: async (
+    names: string[],
+    fields: AuthFileFieldsPatch
+  ): Promise<AuthFileBatchPatchResult> => {
+    const requestedNames = normalizeRequestedAuthFileNames(names);
+    if (requestedNames.length === 0) {
+      return { status: 'ok', updated: 0, files: [], failed: [] };
+    }
+
+    const payload = await apiClient.patch<AuthFileBatchPatchResponse>('/auth-files/fields/batch', {
+      names: requestedNames,
+      fields,
+    });
+    return normalizeBatchPatchResponse(payload, requestedNames);
   },
 
   deleteFile: (name: string) => authFilesApi.deleteFiles([name]),

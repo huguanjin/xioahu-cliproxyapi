@@ -13,6 +13,7 @@ import {
   QUOTA_PROVIDER_TYPES,
   clampCardPageSize,
   getTypeLabel,
+  hasAuthFileProxy,
   isProblemAuthFile,
   isRuntimeOnlyAuthFile,
   normalizeProviderKey,
@@ -20,6 +21,7 @@ import {
   type ResolvedTheme,
 } from '@/features/authFiles/constants';
 import { AuthFileCard } from '@/features/authFiles/components/AuthFileCard';
+import { AuthFileBatchEditSheet } from '@/features/authFiles/components/AuthFileBatchEditSheet';
 import { AuthFileDetailsSheet } from '@/features/authFiles/components/AuthFileDetailsSheet';
 import { AuthFileModelsModal } from '@/features/authFiles/components/AuthFileModelsModal';
 import { AuthFilesToolbar } from '@/features/authFiles/components/AuthFilesToolbar';
@@ -36,6 +38,7 @@ import {
   sortAuthFiles,
 } from '@/features/authFiles/logic';
 import { useAuthFilesData } from '@/features/authFiles/hooks/useAuthFilesData';
+import { useAuthFilesBatchEditor } from '@/features/authFiles/hooks/useAuthFilesBatchEditor';
 import { useAuthFilesModels } from '@/features/authFiles/hooks/useAuthFilesModels';
 import { useAuthFilesOauth } from '@/features/authFiles/hooks/useAuthFilesOauth';
 import { useAuthFilesPrefixProxyEditor } from '@/features/authFiles/hooks/useAuthFilesPrefixProxyEditor';
@@ -84,6 +87,7 @@ export function AuthFilesPage() {
 
   const [filter, setFilter] = useState<'all' | string>('all');
   const [statusFilterMode, setStatusFilterMode] = useState<AuthFilesStatusFilterMode>('all');
+  const [noProxyOnly, setNoProxyOnly] = useState(false);
   const [compactMode, setCompactMode] = useState(false);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -176,6 +180,20 @@ export function AuthFilesPage() {
     loadFiles,
   });
 
+  const {
+    batchEditor,
+    batchEditorDirty,
+    openBatchEditor,
+    closeBatchEditor,
+    handleBatchEditorToggleField,
+    handleBatchEditorChange,
+    handleBatchEditorSave,
+  } = useAuthFilesBatchEditor({
+    disableControls: connectionStatus !== 'connected',
+    loadFiles,
+    deselectAll,
+  });
+
   const disableControls = connectionStatus !== 'connected';
   const normalizedFilter = normalizeProviderKey(String(filter));
   const quotaFilterType: QuotaProviderType | null = QUOTA_PROVIDER_TYPES.has(
@@ -217,6 +235,9 @@ export function AuthFilesPage() {
       if (typeof persistedCompactMode !== 'boolean' && typeof persisted.compactMode === 'boolean') {
         setCompactMode(persisted.compactMode);
       }
+      if (typeof persisted.noProxyOnly === 'boolean') {
+        setNoProxyOnly(persisted.noProxyOnly);
+      }
       if (typeof persisted.search === 'string') {
         setSearch(persisted.search);
       }
@@ -255,6 +276,7 @@ export function AuthFilesPage() {
       statusFilterMode,
       problemOnly,
       disabledOnly,
+      noProxyOnly,
       compactMode,
       search,
       page,
@@ -268,6 +290,7 @@ export function AuthFilesPage() {
     compactMode,
     disabledOnly,
     filter,
+    noProxyOnly,
     page,
     pageSize,
     pageSizeByMode,
@@ -348,6 +371,11 @@ export function AuthFilesPage() {
     setPage(1);
   }, []);
 
+  const handleNoProxyOnlyChange = useCallback((value: boolean) => {
+    setNoProxyOnly(value);
+    setPage(1);
+  }, []);
+
   /* ---------- 数据加载：首载前台（骨架屏），此后一律后台（不清空网格） ---------- */
 
   const initialLoadDoneRef = useRef(false);
@@ -390,9 +418,10 @@ export function AuthFilesPage() {
         if (enabledOnly && file.disabled === true) return false;
         if (disabledOnly && file.disabled !== true) return false;
         if (problemOnly && !isProblemAuthFile(file)) return false;
+        if (noProxyOnly && hasAuthFileProxy(file)) return false;
         return true;
       }),
-    [disabledOnly, enabledOnly, files, problemOnly]
+    [disabledOnly, enabledOnly, files, noProxyOnly, problemOnly]
   );
 
   const statusFilterOptions = useMemo(
@@ -534,6 +563,7 @@ export function AuthFilesPage() {
   const clearFilters = useCallback(() => {
     setFilter('all');
     setStatusFilterMode('all');
+    setNoProxyOnly(false);
     setSearch('');
     setPage(1);
   }, []);
@@ -612,6 +642,8 @@ export function AuthFilesPage() {
           statusFilterMode={statusFilterMode}
           statusFilterOptions={statusFilterOptions}
           onStatusFilterChange={handleStatusFilterModeChange}
+          noProxyOnly={noProxyOnly}
+          onNoProxyOnlyChange={handleNoProxyOnlyChange}
           sortMode={sortMode}
           sortOptions={sortOptions}
           onSortModeChange={handleSortModeChange}
@@ -788,6 +820,16 @@ export function AuthFilesPage() {
         onChange={handlePrefixProxyChange}
       />
 
+      <AuthFileBatchEditSheet
+        disableControls={disableControls}
+        editor={batchEditor}
+        dirty={batchEditorDirty}
+        onClose={closeBatchEditor}
+        onSave={() => void handleBatchEditorSave()}
+        onToggleField={handleBatchEditorToggleField}
+        onChange={handleBatchEditorChange}
+      />
+
       <BatchActionBar
         selectionCount={selectionCount}
         selectablePageCount={selectablePageItems.length}
@@ -801,6 +843,7 @@ export function AuthFilesPage() {
         onDownload={() => void batchDownload(selectedNames)}
         onEnable={() => batchSetStatus(selectedNames, true)}
         onDisable={() => batchSetStatus(selectedNames, false)}
+        onBatchEdit={() => openBatchEditor(selectedNames)}
         onDelete={() => batchDelete(selectedNames)}
       />
     </div>

@@ -24,6 +24,7 @@ import {
   IconSidebarOauth,
   IconSidebarPlugins,
   IconSidebarProviders,
+  IconSidebarProxyPool,
   IconSidebarQuickStart,
   IconSidebarQuota,
   IconSidebarStore,
@@ -61,6 +62,7 @@ const sidebarIcons: Record<string, ReactNode> = {
   plugins: <IconSidebarPlugins size={18} />,
   pluginStore: <IconSidebarStore size={18} />,
   config: <IconSidebarConfig size={18} />,
+  proxyPool: <IconSidebarProxyPool size={18} />,
   logs: <IconSidebarLogs size={18} />,
   system: <IconSidebarSystem size={18} />,
 };
@@ -661,6 +663,12 @@ export function MainLayout() {
           labelKey: 'nav.config_management',
           metaKey: 'nav_meta.config_management',
           icon: sidebarIcons.config,
+        },
+        {
+          path: '/proxy-pool',
+          labelKey: 'nav.proxy_pool',
+          metaKey: 'nav_meta.proxy_pool',
+          icon: sidebarIcons.proxyPool,
         },
         ...(supportsPlugin
           ? [

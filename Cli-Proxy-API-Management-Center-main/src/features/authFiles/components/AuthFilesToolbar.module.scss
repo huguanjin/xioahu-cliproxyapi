@@ -87,6 +87,51 @@
   color: var(--danger-color);
 }
 
+/* ---------- 未绑定代理筛选（独立开关，与状态分段并列，可组合） ---------- */
+
+.proxyFilter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: $radius-full;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  transition:
+    color var(--dur-hover, 200ms) var(--ease-out-strong, ease-out),
+    border-color var(--dur-hover, 200ms) var(--ease-out-strong, ease-out),
+    background-color var(--dur-hover, 200ms) var(--ease-out-strong, ease-out),
+    transform var(--dur-press, 160ms) var(--ease-out-strong, ease-out);
+
+  &:active {
+    transform: scale(0.96);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 1px;
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .proxyFilter:hover {
+    color: var(--text-primary);
+    border-color: var(--border-hover);
+  }
+}
+
+.proxyFilterActive {
+  color: var(--primary-color);
+  border-color: var(--primary-color);
+  background: var(--primary-10);
+}
+
 /* ---------- 排序 ---------- */
 
 .sort {
@@ -267,12 +312,14 @@
 @media (prefers-reduced-motion: reduce) {
   .segment,
   .displayButton,
+  .proxyFilter,
   .deleteAction {
     transition: none;
   }
 
   .segment:active,
   .displayButton:active,
+  .proxyFilter:active,
   .deleteAction:active:not(:disabled) {
     transform: none;
   }

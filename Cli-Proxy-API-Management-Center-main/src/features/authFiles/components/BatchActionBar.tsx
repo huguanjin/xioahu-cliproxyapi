@@ -25,6 +25,7 @@ export type BatchActionBarProps = {
   onDownload: () => void;
   onEnable: () => void;
   onDisable: () => void;
+  onBatchEdit: () => void;
   onDelete: () => void;
 };
 
@@ -48,6 +49,7 @@ export function BatchActionBar(props: BatchActionBarProps) {
     onDownload,
     onEnable,
     onDisable,
+    onBatchEdit,
     onDelete,
   } = props;
   const { t } = useTranslation();
@@ -196,6 +198,14 @@ export function BatchActionBar(props: BatchActionBarProps) {
           </Button>
           <Button variant="secondary" size="sm" onClick={onDisable} disabled={batchStatusDisabled}>
             {t('auth_files.batch_disable')}
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={onBatchEdit}
+            disabled={disableControls || selectionCount === 0}
+          >
+            {t('auth_files.batch_edit')}
           </Button>
           <Button
             variant="danger"

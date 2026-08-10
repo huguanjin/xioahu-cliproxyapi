@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
-import { IconSearch, IconSlidersHorizontal, IconTrash2 } from '@/components/ui/icons';
+import { IconPlug, IconSearch, IconSlidersHorizontal, IconTrash2 } from '@/components/ui/icons';
 import {
   MAX_CARD_PAGE_SIZE,
   MIN_CARD_PAGE_SIZE,
@@ -21,6 +21,8 @@ export type AuthFilesToolbarProps = {
   statusFilterMode: AuthFilesStatusFilterMode;
   statusFilterOptions: Array<{ value: AuthFilesStatusFilterMode; label: string }>;
   onStatusFilterChange: (mode: AuthFilesStatusFilterMode) => void;
+  noProxyOnly: boolean;
+  onNoProxyOnlyChange: (value: boolean) => void;
   sortMode: AuthFilesSortMode;
   sortOptions: Array<{ value: string; label: string }>;
   onSortModeChange: (value: string) => void;
@@ -46,6 +48,8 @@ export function AuthFilesToolbar(props: AuthFilesToolbarProps) {
     statusFilterMode,
     statusFilterOptions,
     onStatusFilterChange,
+    noProxyOnly,
+    onNoProxyOnlyChange,
     sortMode,
     sortOptions,
     onSortModeChange,
@@ -120,6 +124,17 @@ export function AuthFilesToolbar(props: AuthFilesToolbarProps) {
           );
         })}
       </div>
+
+      <button
+        type="button"
+        className={`${styles.proxyFilter} ${noProxyOnly ? styles.proxyFilterActive : ''}`}
+        aria-pressed={noProxyOnly}
+        title={t('auth_files.no_proxy_filter_label')}
+        onClick={() => onNoProxyOnlyChange(!noProxyOnly)}
+      >
+        <IconPlug size={14} />
+        <span>{t('auth_files.no_proxy_filter_label')}</span>
+      </button>
 
       <div className={styles.sort}>
         <Select

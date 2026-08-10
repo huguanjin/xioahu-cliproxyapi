@@ -1,0 +1,73 @@
+@use '../styles/variables' as *;
+@use '../styles/mixins' as *;
+
+.pageContent {
+  width: 100%;
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 0 $spacing-lg $spacing-2xl;
+
+  @include mobile {
+    padding-left: $spacing-md;
+    padding-right: $spacing-md;
+  }
+}
+
+.entryList {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+}
+
+.entryCard {
+  padding: $spacing-md $spacing-lg;
+}
+
+.entryRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $spacing-lg;
+
+  @include mobile {
+    flex-direction: column;
+    align-items: stretch;
+    gap: $spacing-sm;
+  }
+}
+
+.entryInfo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.entryName {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.entryUrl {
+  font-size: 13px;
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+.entryMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-sm;
+  font-size: 12px;
+  color: var(--text-tertiary, var(--text-secondary));
+}
+
+.entryActions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+}
