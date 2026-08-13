@@ -1,3 +1,13 @@
+FROM oven/bun:1.3.14 AS frontend-builder
+
+WORKDIR /frontend
+
+COPY Cli-Proxy-API-Management-Center-main/package.json Cli-Proxy-API-Management-Center-main/bun.lock ./
+RUN bun install --frozen-lockfile
+
+COPY Cli-Proxy-API-Management-Center-main/ ./
+RUN bun run build
+
 FROM golang:1.26-bookworm AS builder
 
 WORKDIR /app
@@ -25,6 +35,11 @@ RUN mkdir /CLIProxyAPI
 COPY --from=builder ./app/CLIProxyAPI /CLIProxyAPI/CLIProxyAPI
 
 COPY config.example.yaml /CLIProxyAPI/config.example.yaml
+
+# Bundled management control panel, built from our own
+# Cli-Proxy-API-Management-Center-main/ fork instead of downloaded from
+# upstream at runtime. Served via MANAGEMENT_STATIC_PATH (docker-compose.yml).
+COPY --from=frontend-builder /frontend/dist/index.html /CLIProxyAPI/static/management.html
 
 WORKDIR /CLIProxyAPI
 

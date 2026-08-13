@@ -1,6 +1,6 @@
 services:
   cli-proxy-api:
-    image: ${CLI_PROXY_IMAGE:-eceasy/cli-proxy-api:latest}
+    image: ${CLI_PROXY_IMAGE:-ghcr.io/huguanjin/xioahu-cliproxyapi:latest}
     pull_policy: always
     build:
       context: .
@@ -14,6 +14,15 @@ services:
     #   - .env
     environment:
       DEPLOY: ${DEPLOY:-}
+      # Pin the management panel to the copy baked into this image (built from
+      # Cli-Proxy-API-Management-Center-main/) instead of the default location
+      # next to config.yaml, so it can't be shadowed by a bind mount.
+      MANAGEMENT_STATIC_PATH: /CLIProxyAPI/static
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     ports:
       - "8317:8317"
       - "8085:8085"
