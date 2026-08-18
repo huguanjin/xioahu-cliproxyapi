@@ -288,6 +288,7 @@
     "priority_display": "Приоритет",
     "weight_display": "Вес WRR",
     "page_size_label": "На странице",
+    "max_page_size_label": "Макс. на странице",
     "filter_all": "Все",
     "filter_qwen": "Qwen",
     "filter_gemini": "Gemini",
@@ -407,7 +408,13 @@
     "duration_minute": "{{minutes}} мин",
     "duration_less_than_minute": "<1 мин",
     "refresh_button": "Обновить квоту",
-    "fetch_all": "Получить все"
+    "fetch_all": "Получить все",
+    "quota_summary_title": "Сводка доступной квоты",
+    "quota_summary_updated_at": "Обновлено {{relative}}",
+    "quota_summary_refresh": "Обновить сводку",
+    "quota_summary_gemini": "Доступно Gemini",
+    "quota_summary_claude": "Доступно Claude",
+    "quota_summary_credits_only": "{{count}} только через резервные кредиты"
   },
   "claude_quota": {
     "title": "Квота Claude",

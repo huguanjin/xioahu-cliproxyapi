@@ -48,7 +48,10 @@ export const OAUTH_PROVIDER_PRESETS = [
 const OAUTH_PROVIDER_EXCLUDES = new Set(['all', 'unknown', 'empty']);
 
 export const MIN_CARD_PAGE_SIZE = 3;
-export const MAX_CARD_PAGE_SIZE = 30;
+/** 单页数量上限的默认值，用户可在显示设置里自行调整（不再写死）。 */
+export const DEFAULT_MAX_CARD_PAGE_SIZE = 30;
+/** 用户可调上限的安全上限，防止一次渲染过多卡片拖垮页面。 */
+export const ABSOLUTE_MAX_CARD_PAGE_SIZE = 300;
 
 export const INTEGER_STRING_PATTERN = /^[+-]?\d+$/;
 export const TRUTHY_TEXT_VALUES = new Set(['true', '1', 'yes', 'y', 'on']);
@@ -79,8 +82,12 @@ export const AUTH_FILE_ICONS: Record<string, AuthFileIconAsset> = {
   vertex: iconVertex,
 };
 
-export const clampCardPageSize = (value: number) =>
-  Math.min(MAX_CARD_PAGE_SIZE, Math.max(MIN_CARD_PAGE_SIZE, Math.round(value)));
+/** 将用户自定义的“单页数量上限”钳制在 [MIN_CARD_PAGE_SIZE, ABSOLUTE_MAX_CARD_PAGE_SIZE] 内。 */
+export const clampMaxCardPageSizeLimit = (value: number) =>
+  Math.min(ABSOLUTE_MAX_CARD_PAGE_SIZE, Math.max(MIN_CARD_PAGE_SIZE, Math.round(value)));
+
+export const clampCardPageSize = (value: number, maxPageSize: number = DEFAULT_MAX_CARD_PAGE_SIZE) =>
+  Math.min(clampMaxCardPageSizeLimit(maxPageSize), Math.max(MIN_CARD_PAGE_SIZE, Math.round(value)));
 
 export const normalizeProviderKey = normalizeOAuthProviderKey;
 

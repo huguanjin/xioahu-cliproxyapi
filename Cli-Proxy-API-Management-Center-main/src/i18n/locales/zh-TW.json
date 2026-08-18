@@ -289,6 +289,7 @@
     "priority_display": "優先順序",
     "weight_display": "WRR 權重",
     "page_size_label": "單頁數量",
+    "max_page_size_label": "單頁數量上限",
     "filter_all": "全部",
     "filter_qwen": "Qwen",
     "filter_gemini": "Gemini",
@@ -414,7 +415,13 @@
     "duration_minute": "{{minutes}} 分鐘",
     "duration_less_than_minute": "小於 1 分鐘",
     "refresh_button": "重新整理配額",
-    "fetch_all": "取得全部"
+    "fetch_all": "取得全部",
+    "quota_summary_title": "可調度配額摘要",
+    "quota_summary_updated_at": "{{relative}}更新",
+    "quota_summary_refresh": "重新整理摘要",
+    "quota_summary_gemini": "Gemini 可用",
+    "quota_summary_claude": "Claude 可用",
+    "quota_summary_credits_only": "其中 {{count}} 個僅透過點數回退可用"
   },
   "claude_quota": {
     "title": "Claude 配額",

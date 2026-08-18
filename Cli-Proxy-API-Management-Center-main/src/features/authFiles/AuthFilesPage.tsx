@@ -11,7 +11,9 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { copyToClipboard } from '@/utils/clipboard';
 import {
   QUOTA_PROVIDER_TYPES,
+  DEFAULT_MAX_CARD_PAGE_SIZE,
   clampCardPageSize,
+  clampMaxCardPageSizeLimit,
   getTypeLabel,
   hasAuthFileProxy,
   isProblemAuthFile,
@@ -96,6 +98,8 @@ export function AuthFilesPage() {
     compact: DEFAULT_COMPACT_PAGE_SIZE,
   });
   const [pageSizeInput, setPageSizeInput] = useState('9');
+  const [maxPageSize, setMaxPageSize] = useState(DEFAULT_MAX_CARD_PAGE_SIZE);
+  const [maxPageSizeInput, setMaxPageSizeInput] = useState(String(DEFAULT_MAX_CARD_PAGE_SIZE));
   const [viewMode, setViewMode] = useState<'diagram' | 'list'>('list');
   const [sortMode, setSortMode] = useState<AuthFilesSortMode>('default');
   const [uiStateHydrated, setUiStateHydrated] = useState(false);
@@ -244,17 +248,23 @@ export function AuthFilesPage() {
       if (typeof persisted.page === 'number' && Number.isFinite(persisted.page)) {
         setPage(Math.max(1, Math.round(persisted.page)));
       }
+      const resolvedMaxPageSize =
+        typeof persisted.maxPageSize === 'number' && Number.isFinite(persisted.maxPageSize)
+          ? clampMaxCardPageSizeLimit(persisted.maxPageSize)
+          : DEFAULT_MAX_CARD_PAGE_SIZE;
+      setMaxPageSize(resolvedMaxPageSize);
+
       const legacyPageSize =
         typeof persisted.pageSize === 'number' && Number.isFinite(persisted.pageSize)
-          ? clampCardPageSize(persisted.pageSize)
+          ? clampCardPageSize(persisted.pageSize, resolvedMaxPageSize)
           : null;
       const regularPageSize =
         typeof persisted.regularPageSize === 'number' && Number.isFinite(persisted.regularPageSize)
-          ? clampCardPageSize(persisted.regularPageSize)
+          ? clampCardPageSize(persisted.regularPageSize, resolvedMaxPageSize)
           : (legacyPageSize ?? DEFAULT_REGULAR_PAGE_SIZE);
       const compactPageSize =
         typeof persisted.compactPageSize === 'number' && Number.isFinite(persisted.compactPageSize)
-          ? clampCardPageSize(persisted.compactPageSize)
+          ? clampCardPageSize(persisted.compactPageSize, resolvedMaxPageSize)
           : (legacyPageSize ?? DEFAULT_COMPACT_PAGE_SIZE);
       setPageSizeByMode({
         regular: regularPageSize,
@@ -283,6 +293,7 @@ export function AuthFilesPage() {
       pageSize,
       regularPageSize: pageSizeByMode.regular,
       compactPageSize: pageSizeByMode.compact,
+      maxPageSize,
       sortMode,
     });
     writePersistedAuthFilesCompactMode(compactMode);
@@ -290,6 +301,7 @@ export function AuthFilesPage() {
     compactMode,
     disabledOnly,
     filter,
+    maxPageSize,
     noProxyOnly,
     page,
     pageSize,
@@ -304,6 +316,10 @@ export function AuthFilesPage() {
   useEffect(() => {
     setPageSizeInput(String(pageSize));
   }, [pageSize]);
+
+  useEffect(() => {
+    setMaxPageSizeInput(String(maxPageSize));
+  }, [maxPageSize]);
 
   const setCurrentModePageSize = useCallback(
     (next: number) => {
@@ -328,12 +344,12 @@ export function AuthFilesPage() {
         return;
       }
 
-      const next = clampCardPageSize(value);
+      const next = clampCardPageSize(value, maxPageSize);
       setCurrentModePageSize(next);
       setPageSizeInput(String(next));
       setPage(1);
     },
-    [pageSize, setCurrentModePageSize]
+    [pageSize, maxPageSize, setCurrentModePageSize]
   );
 
   const handlePageSizeChange = useCallback(
@@ -349,13 +365,44 @@ export function AuthFilesPage() {
 
       const rounded = Math.round(parsed);
       // 超出 [MIN, MAX] 时不提交（clamp 后不等于原值即越界）
-      if (clampCardPageSize(rounded) !== rounded) return;
+      if (clampCardPageSize(rounded, maxPageSize) !== rounded) return;
 
       setCurrentModePageSize(rounded);
       setPage(1);
     },
-    [setCurrentModePageSize]
+    [maxPageSize, setCurrentModePageSize]
   );
+
+  const commitMaxPageSizeInput = useCallback(
+    (rawValue: string) => {
+      const trimmed = rawValue.trim();
+      if (!trimmed) {
+        setMaxPageSizeInput(String(maxPageSize));
+        return;
+      }
+
+      const value = Number(trimmed);
+      if (!Number.isFinite(value)) {
+        setMaxPageSizeInput(String(maxPageSize));
+        return;
+      }
+
+      const next = clampMaxCardPageSizeLimit(value);
+      setMaxPageSize(next);
+      setMaxPageSizeInput(String(next));
+      // 上限下调时，把当前两种展示模式下已超出新上限的单页数量一并收紧
+      setPageSizeByMode((current) => ({
+        regular: clampCardPageSize(current.regular, next),
+        compact: clampCardPageSize(current.compact, next),
+      }));
+      setPage(1);
+    },
+    [maxPageSize]
+  );
+
+  const handleMaxPageSizeInputChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    setMaxPageSizeInput(event.currentTarget.value);
+  }, []);
 
   const handleSortModeChange = useCallback(
     (value: string) => {
@@ -650,6 +697,10 @@ export function AuthFilesPage() {
           pageSizeInput={pageSizeInput}
           onPageSizeInputChange={handlePageSizeChange}
           onPageSizeCommit={commitPageSizeInput}
+          maxPageSize={maxPageSize}
+          maxPageSizeInput={maxPageSizeInput}
+          onMaxPageSizeInputChange={handleMaxPageSizeInputChange}
+          onMaxPageSizeCommit={commitMaxPageSizeInput}
           compactMode={compactMode}
           onCompactModeChange={setCompactMode}
           deleteLabel={deleteAllButtonLabel}

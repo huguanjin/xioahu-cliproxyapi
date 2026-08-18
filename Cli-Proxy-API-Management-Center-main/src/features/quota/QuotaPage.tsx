@@ -21,6 +21,7 @@ import { useRevealGroup } from '@/hooks/motion';
 import { useAuthStore, useQuotaStore, useThemeStore } from '@/stores';
 import type { AuthFileItem, ResolvedTheme } from '@/types';
 import { ProviderTabs } from '@/features/authFiles/components/ProviderTabs';
+import { AntigravityQuotaSummary } from './components/AntigravityQuotaSummary';
 import { QuotaHeader } from './components/QuotaHeader';
 import { QuotaCard } from './components/QuotaCard';
 import { QuotaTimeline } from './components/QuotaTimeline';
@@ -259,6 +260,8 @@ export function QuotaPage() {
         disableControls={disableControls}
         onRefreshAll={handleRefreshAll}
       />
+
+      <AntigravityQuotaSummary />
 
       <section className={styles.workbench}>
         {/* tabs + 排序作为一个整体入场（useRevealGroup 会给每个 [data-reveal]

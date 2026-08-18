@@ -580,6 +580,13 @@ func isAuthBlockedForModel(auth *Auth, model string, now time.Time) (bool, block
 	return availabilityBlock(auth.Unavailable, auth.Quota.Exceeded, auth.NextRetryAfter, auth.Quota.NextRecoverAt, now)
 }
 
+// IsModelAvailable reports whether auth can currently serve model, based on
+// local cooldown/quota state (mirrors the conductor's own selection logic).
+func IsModelAvailable(auth *Auth, model string, now time.Time) bool {
+	blocked, _, _ := isAuthBlockedForModel(auth, model, now)
+	return !blocked
+}
+
 func availabilityBlock(unavailable, quotaExceeded bool, nextRetryAfter, nextRecoverAt, now time.Time) (bool, blockReason, time.Time) {
 	if !unavailable && !quotaExceeded {
 		return false, blockReasonNone, time.Time{}

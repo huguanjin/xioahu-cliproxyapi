@@ -6,7 +6,7 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import { IconPlug, IconSearch, IconSlidersHorizontal, IconTrash2 } from '@/components/ui/icons';
 import {
-  MAX_CARD_PAGE_SIZE,
+  ABSOLUTE_MAX_CARD_PAGE_SIZE,
   MIN_CARD_PAGE_SIZE,
 } from '@/features/authFiles/constants';
 import type {
@@ -29,6 +29,10 @@ export type AuthFilesToolbarProps = {
   pageSizeInput: string;
   onPageSizeInputChange: (event: ChangeEvent<HTMLInputElement>) => void;
   onPageSizeCommit: (rawValue: string) => void;
+  maxPageSize: number;
+  maxPageSizeInput: string;
+  onMaxPageSizeInputChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onMaxPageSizeCommit: (rawValue: string) => void;
   compactMode: boolean;
   onCompactModeChange: (value: boolean) => void;
   deleteLabel: string;
@@ -56,6 +60,10 @@ export function AuthFilesToolbar(props: AuthFilesToolbarProps) {
     pageSizeInput,
     onPageSizeInputChange,
     onPageSizeCommit,
+    maxPageSize,
+    maxPageSizeInput,
+    onMaxPageSizeInputChange,
+    onMaxPageSizeCommit,
     compactMode,
     onCompactModeChange,
     deleteLabel,
@@ -168,11 +176,32 @@ export function AuthFilesToolbar(props: AuthFilesToolbarProps) {
                 className={styles.pageSizeInput}
                 type="number"
                 min={MIN_CARD_PAGE_SIZE}
-                max={MAX_CARD_PAGE_SIZE}
+                max={maxPageSize}
                 step={1}
                 value={pageSizeInput}
                 onChange={onPageSizeInputChange}
                 onBlur={(e) => onPageSizeCommit(e.currentTarget.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.currentTarget.blur();
+                  }
+                }}
+              />
+            </div>
+            <div className={styles.popoverRow}>
+              <label htmlFor="auth-files-max-page-size">
+                {t('auth_files.max_page_size_label')}
+              </label>
+              <input
+                id="auth-files-max-page-size"
+                className={styles.pageSizeInput}
+                type="number"
+                min={MIN_CARD_PAGE_SIZE}
+                max={ABSOLUTE_MAX_CARD_PAGE_SIZE}
+                step={1}
+                value={maxPageSizeInput}
+                onChange={onMaxPageSizeInputChange}
+                onBlur={(e) => onMaxPageSizeCommit(e.currentTarget.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.currentTarget.blur();

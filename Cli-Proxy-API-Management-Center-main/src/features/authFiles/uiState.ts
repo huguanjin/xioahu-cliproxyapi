@@ -21,6 +21,8 @@ export type AuthFilesUiState = {
   pageSize?: number;
   regularPageSize?: number;
   compactPageSize?: number;
+  /** 用户自定义的单页数量上限，覆盖 DEFAULT_MAX_CARD_PAGE_SIZE。 */
+  maxPageSize?: number;
   sortMode?: AuthFilesSortMode;
 };
 

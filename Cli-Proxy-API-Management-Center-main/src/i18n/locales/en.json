@@ -289,6 +289,7 @@
     "priority_display": "Priority",
     "weight_display": "WRR weight",
     "page_size_label": "Per page",
+    "max_page_size_label": "Max per page",
     "filter_all": "All",
     "filter_qwen": "Qwen",
     "filter_gemini": "Gemini",
@@ -414,7 +415,13 @@
     "duration_minute": "{{minutes}}m",
     "duration_less_than_minute": "<1m",
     "refresh_button": "Refresh Quota",
-    "fetch_all": "Fetch All"
+    "fetch_all": "Fetch All",
+    "quota_summary_title": "Schedulable Quota Summary",
+    "quota_summary_updated_at": "Updated {{relative}}",
+    "quota_summary_refresh": "Refresh summary",
+    "quota_summary_gemini": "Gemini available",
+    "quota_summary_claude": "Claude available",
+    "quota_summary_credits_only": "{{count}} via credits fallback only"
   },
   "claude_quota": {
     "title": "Claude Quota",
