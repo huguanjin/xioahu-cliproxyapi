@@ -35,6 +35,10 @@ export type AuthFilesToolbarProps = {
   onMaxPageSizeCommit: (rawValue: string) => void;
   compactMode: boolean;
   onCompactModeChange: (value: boolean) => void;
+  clearProxyLabel: string;
+  clearProxyDisabled: boolean;
+  clearProxyLoading: boolean;
+  onClearProxy: () => void;
   deleteLabel: string;
   deleteDisabled: boolean;
   deleteLoading: boolean;
@@ -66,6 +70,10 @@ export function AuthFilesToolbar(props: AuthFilesToolbarProps) {
     onMaxPageSizeCommit,
     compactMode,
     onCompactModeChange,
+    clearProxyLabel,
+    clearProxyDisabled,
+    clearProxyLoading,
+    onClearProxy,
     deleteLabel,
     deleteDisabled,
     deleteLoading,
@@ -220,6 +228,16 @@ export function AuthFilesToolbar(props: AuthFilesToolbarProps) {
           </div>
         )}
       </div>
+
+      <button
+        type="button"
+        className={styles.clearProxyAction}
+        onClick={onClearProxy}
+        disabled={clearProxyDisabled}
+      >
+        {clearProxyLoading ? <LoadingSpinner size={13} /> : <IconPlug size={14} />}
+        {clearProxyLabel}
+      </button>
 
       <button
         type="button"

@@ -131,6 +131,7 @@ export function AuthFilesPage() {
     uploading,
     deleting,
     deletingAll,
+    clearingAllProxy,
     statusUpdating,
     manualRefreshing,
     batchStatusUpdating,
@@ -140,6 +141,7 @@ export function AuthFilesPage() {
     handleFileChange,
     handleDelete,
     handleDeleteAll,
+    handleClearAllProxy,
     handleDownload,
     handleManualRefresh,
     handleStatusToggle,
@@ -631,6 +633,10 @@ export function AuthFilesPage() {
       : `${t('common.delete')} ${getTypeLabel(t, normalizedFilter)}`;
   })();
 
+  const hasClearableProxyFiles = files.some(
+    (file) => !isRuntimeOnlyAuthFile(file) && hasAuthFileProxy(file)
+  );
+
   const oauthSectionRef = useRevealOnScroll<HTMLDivElement>();
 
   const isFirstRunEmpty = !loading && files.length === 0 && !error;
@@ -703,6 +709,12 @@ export function AuthFilesPage() {
           onMaxPageSizeCommit={commitMaxPageSizeInput}
           compactMode={compactMode}
           onCompactModeChange={setCompactMode}
+          clearProxyLabel={t('auth_files.clear_all_proxy_button')}
+          clearProxyDisabled={
+            disableControls || loading || clearingAllProxy || !hasClearableProxyFiles
+          }
+          clearProxyLoading={clearingAllProxy}
+          onClearProxy={handleClearAllProxy}
           deleteLabel={deleteAllButtonLabel}
           deleteDisabled={disableControls || loading || deletingAll || files.length === 0}
           deleteLoading={deletingAll}

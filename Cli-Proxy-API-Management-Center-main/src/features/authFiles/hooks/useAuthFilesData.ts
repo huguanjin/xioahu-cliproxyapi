@@ -9,6 +9,7 @@ import { MAX_AUTH_FILE_SIZE } from '@/utils/constants';
 import { downloadBlob } from '@/utils/download';
 import {
   getTypeLabel,
+  hasAuthFileProxy,
   isProblemAuthFile,
   isRuntimeOnlyAuthFile,
   normalizeProviderKey,
@@ -46,6 +47,7 @@ export type UseAuthFilesDataResult = {
   uploading: boolean;
   deleting: string | null;
   deletingAll: boolean;
+  clearingAllProxy: boolean;
   statusUpdating: Record<string, boolean>;
   manualRefreshing: Record<string, boolean>;
   batchStatusUpdating: boolean;
@@ -55,6 +57,7 @@ export type UseAuthFilesDataResult = {
   handleFileChange: (event: ChangeEvent<HTMLInputElement>) => Promise<void>;
   handleDelete: (name: string) => void;
   handleDeleteAll: (options: DeleteAllOptions) => void;
+  handleClearAllProxy: () => void;
   handleDownload: (name: string) => Promise<void>;
   handleManualRefresh: (item: AuthFileItem) => Promise<void>;
   handleStatusToggle: (item: AuthFileItem, enabled: boolean) => Promise<void>;
@@ -79,6 +82,7 @@ export function useAuthFilesData(options?: UseAuthFilesDataOptions): UseAuthFile
   const [uploading, setUploading] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [deletingAll, setDeletingAll] = useState(false);
+  const [clearingAllProxy, setClearingAllProxy] = useState(false);
   const [statusUpdating, setStatusUpdating] = useState<Record<string, boolean>>({});
   const [manualRefreshing, setManualRefreshing] = useState<Record<string, boolean>>({});
   const [batchStatusUpdating, setBatchStatusUpdating] = useState(false);
@@ -471,6 +475,54 @@ export function useAuthFilesData(options?: UseAuthFilesDataOptions): UseAuthFile
     [applyDeletedFiles, deselectAll, files, invalidateInFlightLoads, showConfirmation, showNotification, t]
   );
 
+  const handleClearAllProxy = useCallback(() => {
+    showConfirmation({
+      title: t('auth_files.clear_all_proxy_title', { defaultValue: 'Clear All Proxies' }),
+      message: t('auth_files.clear_all_proxy_confirm'),
+      variant: 'primary',
+      confirmText: t('common.confirm'),
+      onConfirm: async () => {
+        const targetNames = files
+          .filter((file) => !isRuntimeOnlyAuthFile(file) && hasAuthFileProxy(file))
+          .map((file) => file.name);
+
+        if (targetNames.length === 0) {
+          showNotification(t('auth_files.clear_all_proxy_none'), 'info');
+          return;
+        }
+
+        setClearingAllProxy(true);
+        try {
+          const result = await authFilesApi.batchPatchFields(targetNames, { proxy_url: '' });
+          const success = result.updated;
+          const failed = result.failed.length;
+
+          invalidateInFlightLoads();
+          onFilesMutatedRef.current?.(targetNames);
+          await loadFiles();
+          notifyAuthFilesChanged();
+
+          if (failed === 0) {
+            showNotification(
+              t('auth_files.clear_all_proxy_success', { count: success }),
+              'success'
+            );
+          } else {
+            showNotification(
+              t('auth_files.clear_all_proxy_partial', { success, failed }),
+              'warning'
+            );
+          }
+        } catch (err: unknown) {
+          const errorMessage = err instanceof Error ? err.message : '';
+          showNotification(`${t('notification.update_failed')}: ${errorMessage}`, 'error');
+        } finally {
+          setClearingAllProxy(false);
+        }
+      },
+    });
+  }, [files, invalidateInFlightLoads, loadFiles, showConfirmation, showNotification, t]);
+
   const handleDownload = useCallback(
     async (name: string) => {
       try {
@@ -747,6 +799,7 @@ export function useAuthFilesData(options?: UseAuthFilesDataOptions): UseAuthFile
     uploading,
     deleting,
     deletingAll,
+    clearingAllProxy,
     statusUpdating,
     manualRefreshing,
     batchStatusUpdating,
@@ -756,6 +809,7 @@ export function useAuthFilesData(options?: UseAuthFilesDataOptions): UseAuthFile
     handleFileChange,
     handleDelete,
     handleDeleteAll,
+    handleClearAllProxy,
     handleDownload,
     handleManualRefresh,
     handleStatusToggle,

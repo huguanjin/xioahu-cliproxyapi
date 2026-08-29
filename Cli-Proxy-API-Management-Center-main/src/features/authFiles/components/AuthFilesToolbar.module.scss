@@ -240,10 +240,55 @@
   }
 }
 
+/* ---------- 一键清除代理配置（工具栏右端的 ghost neutral，紧邻删除按钮） ---------- */
+
+.clearProxyAction {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: $radius-full;
+  border: 1px solid transparent;
+  background: none;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  transition:
+    color var(--dur-hover, 200ms) var(--ease-out-strong, ease-out),
+    background-color var(--dur-hover, 200ms) var(--ease-out-strong, ease-out),
+    border-color var(--dur-hover, 200ms) var(--ease-out-strong, ease-out),
+    transform var(--dur-press, 160ms) var(--ease-out-strong, ease-out);
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  &:active:not(:disabled) {
+    transform: scale(0.96);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 1px;
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .clearProxyAction:hover:not(:disabled) {
+    color: var(--text-primary);
+    background: var(--bg-secondary);
+    border-color: var(--border-color);
+  }
+}
+
 /* ---------- 删除筛选结果（工具栏右端的 ghost danger） ---------- */
 
 .deleteAction {
-  margin-left: auto;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -292,7 +337,7 @@
     max-width: none;
   }
 
-  .deleteAction {
+  .clearProxyAction {
     margin-left: 0;
   }
 }
@@ -313,6 +358,7 @@
   .segment,
   .displayButton,
   .proxyFilter,
+  .clearProxyAction,
   .deleteAction {
     transition: none;
   }
@@ -320,6 +366,7 @@
   .segment:active,
   .displayButton:active,
   .proxyFilter:active,
+  .clearProxyAction:active:not(:disabled),
   .deleteAction:active:not(:disabled) {
     transform: none;
   }
