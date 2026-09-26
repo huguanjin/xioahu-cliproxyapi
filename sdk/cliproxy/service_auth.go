@@ -367,6 +367,39 @@ func (s *Service) configureCooldownStateStore(cfg *config.Config) {
 	_ = s.configureCooldownStateStoreContext(context.Background(), cfg, false)
 }
 
+// selfTestOptionsFromConfig translates the YAML self-test block into the auth
+// package's options. Unparsable durations fall back to the option defaults rather
+// than failing startup: config validation already rejected bad input on load, and
+// a proxy that refuses to boot over a probe schedule would be a worse trade.
+func selfTestOptionsFromConfig(cfg *config.Config) coreauth.SelfTestOptions {
+	options := coreauth.DefaultSelfTestOptions()
+	if cfg == nil {
+		return options
+	}
+	selfTest := cfg.SelfTest.Effective()
+	options.Enabled = selfTest.Enabled
+	options.Concurrency = selfTest.Concurrency
+	options.QueryQuotaOnRateLimit = selfTest.QueryQuotaOnRateLimit
+	options.QuotaConcurrency = selfTest.QuotaConcurrency
+	options.DeterministicFailureThreshold = selfTest.DeterministicFailureThreshold
+	if parsed, errParse := time.ParseDuration(selfTest.Interval); errParse == nil && parsed > 0 {
+		options.Interval = parsed
+	}
+	if parsed, errParse := time.ParseDuration(selfTest.PerCredentialPeriod); errParse == nil && parsed > 0 {
+		options.PerCredentialPeriod = parsed
+	}
+	if parsed, errParse := time.ParseDuration(selfTest.Timeout); errParse == nil && parsed > 0 {
+		options.Timeout = parsed
+	}
+	if parsed, errParse := time.ParseDuration(selfTest.QuotaCacheTTL); errParse == nil && parsed > 0 {
+		options.QuotaCacheTTL = parsed
+	}
+	if parsed, errParse := time.ParseDuration(selfTest.MaxCooldown); errParse == nil && parsed > 0 {
+		options.MaxCooldown = parsed
+	}
+	return options.Normalize()
+}
+
 func (s *Service) configureCooldownStateStoreContext(ctx context.Context, cfg *config.Config, persistOld bool) bool {
 	if s == nil || s.coreManager == nil {
 		return true

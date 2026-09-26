@@ -170,6 +170,9 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.PATCH("/auth-files/status", s.mgmt.PatchAuthFileStatus)
 		mgmt.PATCH("/auth-files/fields", s.mgmt.PatchAuthFileFields)
 		mgmt.PATCH("/auth-files/fields/batch", s.mgmt.BatchPatchAuthFileFields)
+		mgmt.GET("/credential-selftest", s.mgmt.GetCredentialSelfTestStatus)
+		mgmt.PATCH("/credential-selftest", s.mgmt.PatchCredentialSelfTest)
+		mgmt.POST("/credential-selftest/run", s.mgmt.PostCredentialSelfTest)
 		mgmt.POST("/vertex/import", s.mgmt.ImportVertexCredential)
 
 		mgmt.GET("/anthropic-auth-url", s.mgmt.RequestAnthropicToken)

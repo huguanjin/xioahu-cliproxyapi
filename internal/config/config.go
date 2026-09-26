@@ -25,6 +25,9 @@ type Config struct {
 	// CredentialInFlight configures credential observation snapshots.
 	CredentialInFlight CredentialInFlightConfig `yaml:"credential-in-flight" json:"credential-in-flight"`
 
+	// SelfTest configures the scheduled credential self-test.
+	SelfTest SelfTestConfig `yaml:"self-test" json:"self-test"`
+
 	// RemoteManagement nests management-related options under 'remote-management'.
 	RemoteManagement RemoteManagement `yaml:"remote-management" json:"-"`
 

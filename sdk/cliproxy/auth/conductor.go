@@ -37,6 +37,16 @@ type RequestAuthPreparer interface {
 	PrepareRequestAuth(ctx context.Context, auth *Auth) (*Auth, error)
 }
 
+// CredentialSelfTester lets an executor probe a credential on a schedule
+// instead of waiting for live traffic to discover a rejection. Executors that
+// do not implement it are skipped by the self-test loop.
+type CredentialSelfTester interface {
+	// SelfTestCredential probes one credential and reports what the upstream
+	// answered. An error means the probe could not be performed at all, which
+	// is not a verdict on the credential.
+	SelfTestCredential(ctx context.Context, auth *Auth) (*CredentialSelfTestResult, error)
+}
+
 // ExecutionSessionCloser allows executors to release per-session runtime resources.
 type ExecutionSessionCloser interface {
 	CloseExecutionSession(sessionID string)
@@ -152,6 +162,16 @@ type Manager struct {
 	refreshCancel context.CancelFunc
 	refreshLoop   *authAutoRefreshLoop
 
+	// Credential self-test state. The loop probes idle credentials so a
+	// rejection surfaces before live traffic hits it.
+	//
+	// selfTestOptionValue is published atomically rather than read under mu: the
+	// strike-escalation path reads it while already holding mu, and a nested
+	// acquisition of the same non-reentrant mutex would deadlock.
+	selfTestCancel      context.CancelFunc
+	selfTestLoop        *credentialSelfTestLoop
+	selfTestOptionValue atomic.Value // of SelfTestOptions
+
 	requestPrepareLocks sync.Map
 	// refreshLocks serializes credential refresh per auth ID so concurrent
 	// 401 recoveries and auto-refresh workers do not race the same refresh_token.
@@ -180,6 +200,7 @@ func NewManager(store Store, selector Selector, hook Hook) *Manager {
 	}
 	// atomic.Value requires non-nil initial value.
 	manager.runtimeConfig.Store(&internalconfig.Config{})
+	manager.selfTestOptionValue.Store(DefaultSelfTestOptions())
 	manager.apiKeyModelRouting.Store(&apiKeyModelRoutingSnapshot{config: &internalconfig.Config{}})
 	defaultInFlightConfig, errInFlightConfig := HomeInFlightPublisherConfigFromConfig(internalconfig.DefaultCredentialInFlightConfig())
 	if errInFlightConfig == nil {

@@ -206,6 +206,15 @@ func (s *Service) Run(ctx context.Context) error {
 		log.Infof("core auth auto-refresh started (interval=%s)", interval)
 	}
 
+	// Probe idle credentials so a rejection is discovered before live traffic
+	// hits it. The loop always starts: with the schedule disabled it idles, and
+	// the management API can still trigger a run by hand. Providers whose
+	// executor does not implement the probe are skipped by the loop itself.
+	if s.coreManager != nil {
+		s.coreManager.StartCredentialSelfTest(context.Background(), selfTestOptionsFromConfig(s.cfg))
+		log.Info("credential self-test started")
+	}
+
 	select {
 	case <-ctx.Done():
 		log.Debug("service context cancelled, shutting down...")
@@ -287,6 +296,7 @@ func (s *Service) Shutdown(ctx context.Context) error {
 		}
 		if s.coreManager != nil {
 			s.coreManager.StopAutoRefresh()
+			s.coreManager.StopCredentialSelfTest()
 		}
 		if s.watcher != nil {
 			if err := s.watcher.Stop(); err != nil {

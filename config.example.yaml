@@ -80,6 +80,46 @@ pprof:
 #   max-string-bytes: 256
 #   staging-retention: 1m
 
+# Scheduled credential self-test. Probes idle credentials against a cheap
+# provider endpoint so a rejection surfaces before live traffic hits it.
+# Disabled by default: enabling it sends real upstream requests on a timer.
+# Credentials already cooling down, disabled, or probed within
+# per-credential-period are skipped. A credential that fails deterministically
+# (401/402/403/429) this many times in a row has its cooldown extended toward
+# max-cooldown; it is never disabled automatically. Transient failures
+# (5xx, transport errors, probe timeouts) do not count toward the threshold.
+self-test:
+  enabled: false
+
+  # How often the schedule walks the credential pool.
+  interval: 1m
+
+  # Minimum gap between two probes of the same credential.
+  per-credential-period: 30m
+
+  # Upper bound on a single probe.
+  timeout: 90s
+
+  # Simultaneous probes. Each probe targets a different credential.
+  concurrency: 8
+
+  # Ask the provider's quota endpoint about a credential that answered 429, so a
+  # spent window can be told apart from momentary throttling.
+  query-quota-on-rate-limit: true
+
+  # Simultaneous quota lookups. Kept below concurrency because a quota lookup
+  # refreshes the OAuth token first and costs more than a probe.
+  quota-concurrency: 4
+
+  # How long a quota lookup result is reused.
+  quota-cache-ttl: 60s
+
+  # Consecutive deterministic failures that escalate the cooldown.
+  deterministic-failure-threshold: 3
+
+  # Ceiling on how far repeated failures push one credential's cooldown.
+  max-cooldown: 12h
+
 # Standard dynamic library plugins are trusted in-process code. They are disabled by default.
 # Build Go examples with go build -buildmode=c-shared for the target GOOS/GOARCH.
 # Other languages can implement the same C ABI and JSON method protocol.
