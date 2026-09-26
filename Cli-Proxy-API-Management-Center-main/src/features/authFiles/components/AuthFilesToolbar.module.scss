@@ -132,6 +132,19 @@
   background: var(--primary-10);
 }
 
+/* ---------- 状态码筛选（独立开关，与状态分段组合使用） ---------- */
+
+.statusCode {
+  min-width: 96px;
+  border-radius: $radius-full;
+  transition: box-shadow var(--dur-hover, 200ms) var(--ease-out-strong, ease-out);
+}
+
+.statusCodeActive {
+  box-shadow: 0 0 0 1px var(--primary-color);
+  border-radius: $radius-full;
+}
+
 /* ---------- 排序 ---------- */
 
 .sort {
@@ -358,6 +371,7 @@
   .segment,
   .displayButton,
   .proxyFilter,
+  .statusCode,
   .clearProxyAction,
   .deleteAction {
     transition: none;

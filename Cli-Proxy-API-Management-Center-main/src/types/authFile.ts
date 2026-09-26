@@ -39,6 +39,15 @@ export interface AuthFileItem {
   unavailable?: boolean;
   status?: string;
   statusMessage?: string;
+  /**
+   * 最近一次上游失败的 HTTP 状态码（后端 LastError.HTTPStatus）。
+   * 只有真正失败过的凭证才有；成功的凭证不带这个字段。
+   * 与 statusMessage 不同：402 和 403 的 statusMessage 都是 "payment_required"，
+   * 要区分问题账号只能看这个数字码。
+   */
+  lastStatusCode?: number;
+  /** 最近一次上游失败的机器可读错误码（后端 LastError.Code，如 credential_invalid）。 */
+  lastErrorCode?: string;
   lastRefresh?: string | number;
   modified?: number;
   priority?: number;

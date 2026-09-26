@@ -286,6 +286,8 @@
     "problem_filter_problem": "问题",
     "problem_filter_disabled": "停用",
     "no_proxy_filter_label": "未绑定代理",
+    "status_code_filter_label": "状态码筛选",
+    "status_code_filter_all": "全部状态码",
     "display_options_label": "显示选项",
     "compact_mode_label": "简略模式",
     "sort_label": "排序",

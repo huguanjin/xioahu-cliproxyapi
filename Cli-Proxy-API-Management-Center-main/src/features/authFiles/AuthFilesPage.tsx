@@ -14,6 +14,8 @@ import {
   DEFAULT_MAX_CARD_PAGE_SIZE,
   clampCardPageSize,
   clampMaxCardPageSizeLimit,
+  collectAuthFileStatusCodes,
+  getAuthFileLastStatusCode,
   getTypeLabel,
   hasAuthFileProxy,
   isProblemAuthFile,
@@ -46,6 +48,7 @@ import { useAuthFilesOauth } from '@/features/authFiles/hooks/useAuthFilesOauth'
 import { useAuthFilesPrefixProxyEditor } from '@/features/authFiles/hooks/useAuthFilesPrefixProxyEditor';
 import { useAuthFilesStatusBarCache } from '@/features/authFiles/hooks/useAuthFilesStatusBarCache';
 import {
+  isAuthFilesStatusCodeFilter,
   isAuthFilesStatusFilterMode,
   isAuthFilesSortMode,
   readAuthFilesUiState,
@@ -90,6 +93,7 @@ export function AuthFilesPage() {
   const [filter, setFilter] = useState<'all' | string>('all');
   const [statusFilterMode, setStatusFilterMode] = useState<AuthFilesStatusFilterMode>('all');
   const [noProxyOnly, setNoProxyOnly] = useState(false);
+  const [statusCodeFilter, setStatusCodeFilter] = useState<string>('all');
   const [compactMode, setCompactMode] = useState(false);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -244,6 +248,9 @@ export function AuthFilesPage() {
       if (typeof persisted.noProxyOnly === 'boolean') {
         setNoProxyOnly(persisted.noProxyOnly);
       }
+      if (isAuthFilesStatusCodeFilter(persisted.statusCodeFilter)) {
+        setStatusCodeFilter(persisted.statusCodeFilter);
+      }
       if (typeof persisted.search === 'string') {
         setSearch(persisted.search);
       }
@@ -289,6 +296,7 @@ export function AuthFilesPage() {
       problemOnly,
       disabledOnly,
       noProxyOnly,
+      statusCodeFilter,
       compactMode,
       search,
       page,
@@ -305,6 +313,7 @@ export function AuthFilesPage() {
     filter,
     maxPageSize,
     noProxyOnly,
+    statusCodeFilter,
     page,
     pageSize,
     pageSizeByMode,
@@ -425,6 +434,11 @@ export function AuthFilesPage() {
     setPage(1);
   }, []);
 
+  const handleStatusCodeFilterChange = useCallback((value: string) => {
+    setStatusCodeFilter(value);
+    setPage(1);
+  }, []);
+
   /* ---------- 数据加载：首载前台（骨架屏），此后一律后台（不清空网格） ---------- */
 
   const initialLoadDoneRef = useRef(false);
@@ -468,9 +482,24 @@ export function AuthFilesPage() {
         if (disabledOnly && file.disabled !== true) return false;
         if (problemOnly && !isProblemAuthFile(file)) return false;
         if (noProxyOnly && hasAuthFileProxy(file)) return false;
+        if (statusCodeFilter !== 'all') {
+          const code = getAuthFileLastStatusCode(file);
+          if (code === undefined || String(code) !== statusCodeFilter) return false;
+        }
         return true;
       }),
-    [disabledOnly, enabledOnly, files, noProxyOnly, problemOnly]
+    [disabledOnly, enabledOnly, files, noProxyOnly, problemOnly, statusCodeFilter]
+  );
+
+  const statusCodeOptions = useMemo(
+    () => [
+      { value: 'all', label: t('auth_files.status_code_filter_all') },
+      ...collectAuthFileStatusCodes(files).map((code) => ({
+        value: String(code),
+        label: String(code),
+      })),
+    ],
+    [files, t]
   );
 
   const statusFilterOptions = useMemo(
@@ -613,6 +642,7 @@ export function AuthFilesPage() {
     setFilter('all');
     setStatusFilterMode('all');
     setNoProxyOnly(false);
+    setStatusCodeFilter('all');
     setSearch('');
     setPage(1);
   }, []);
@@ -697,6 +727,9 @@ export function AuthFilesPage() {
           onStatusFilterChange={handleStatusFilterModeChange}
           noProxyOnly={noProxyOnly}
           onNoProxyOnlyChange={handleNoProxyOnlyChange}
+          statusCodeFilter={statusCodeFilter}
+          statusCodeOptions={statusCodeOptions}
+          onStatusCodeFilterChange={handleStatusCodeFilterChange}
           sortMode={sortMode}
           sortOptions={sortOptions}
           onSortModeChange={handleSortModeChange}

@@ -143,6 +143,34 @@ export const isProblemAuthFile = (file: AuthFileItem): boolean => {
   return file.unavailable === true || status === 'error' || hasAuthFileStatusWarning(file);
 };
 
+/**
+ * 最近一次上游失败的 HTTP 状态码；没有失败过或值非法时返回 undefined。
+ * 只接受 100–599，避免把后端口径外的脏值变成下拉框选项。
+ */
+export const getAuthFileLastStatusCode = (file: AuthFileItem): number | undefined => {
+  const raw = file.lastStatusCode ?? file['last_status_code'];
+  let parsed: number | undefined;
+  if (typeof raw === 'number') {
+    parsed = Number.isSafeInteger(raw) ? raw : undefined;
+  } else if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    parsed = /^[+-]?\d+$/.test(trimmed) ? Number.parseInt(trimmed, 10) : undefined;
+  }
+  // 注意不要用裸 Number()：缺失字段会变成 NaN 并混进下拉框选项。
+  if (parsed === undefined || !Number.isSafeInteger(parsed)) return undefined;
+  return parsed >= 100 && parsed <= 599 ? parsed : undefined;
+};
+
+/** 收集列表里实际出现过的状态码，升序，供筛选下拉框动态生成选项。 */
+export const collectAuthFileStatusCodes = (files: AuthFileItem[]): number[] => {
+  const codes = new Set<number>();
+  files.forEach((file) => {
+    const code = getAuthFileLastStatusCode(file);
+    if (code !== undefined) codes.add(code);
+  });
+  return Array.from(codes).sort((left, right) => left - right);
+};
+
 export const getTypeLabel = (t: TFunction, type: string): string => {
   const providerKey = normalizeProviderKey(type);
   const key = `auth_files.filter_${providerKey}`;

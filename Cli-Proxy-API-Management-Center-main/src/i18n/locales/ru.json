@@ -285,6 +285,8 @@
     "problem_filter_problem": "Пробл.",
     "problem_filter_disabled": "Откл.",
     "no_proxy_filter_label": "Без прокси",
+    "status_code_filter_label": "Фильтр по коду состояния",
+    "status_code_filter_all": "Все коды",
     "display_options_label": "Параметры отображения",
     "compact_mode_label": "Компактный режим",
     "sort_label": "Сортировка",

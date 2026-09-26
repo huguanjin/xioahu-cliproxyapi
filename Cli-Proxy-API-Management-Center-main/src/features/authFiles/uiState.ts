@@ -15,6 +15,12 @@ export type AuthFilesUiState = {
   disabledOnly?: boolean;
   statusFilterMode?: AuthFilesStatusFilterMode;
   noProxyOnly?: boolean;
+  /**
+   * 状态码筛选，存 'all' 或后端下发的数字状态码字符串（如 '403'）。
+   * 选项随数据动态生成，所以这里只做「是 all 或数字串」的形状校验，
+   * 不校验具体某个码是否还存在——数据变化后自然筛不出东西，不需要额外清理。
+   */
+  statusCodeFilter?: string;
   compactMode?: boolean;
   search?: string;
   page?: number;
@@ -39,6 +45,10 @@ export const isAuthFilesSortMode = (value: unknown): value is AuthFilesSortMode 
 export const isAuthFilesStatusFilterMode = (value: unknown): value is AuthFilesStatusFilterMode =>
   typeof value === 'string' &&
   AUTH_FILES_STATUS_FILTER_MODE_SET.has(value as AuthFilesStatusFilterMode);
+
+/** 'all' 或数字字符串才接受，用于水合持久化的状态码筛选。 */
+export const isAuthFilesStatusCodeFilter = (value: unknown): value is string =>
+  value === 'all' || (typeof value === 'string' && /^\d+$/.test(value));
 
 const readAuthFilesUiStateFromStorage = (
   storage: Pick<Storage, 'getItem'> | null | undefined

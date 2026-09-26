@@ -349,6 +349,15 @@ func (h *Handler) buildAuthFileEntryLocked(auth *coreauth.Auth) gin.H {
 		"source":         "memory",
 		"size":           int64(0),
 	}
+	// Surface the last upstream failure so the management UI can filter by it.
+	// Only the latest error is exposed: per-model codes would need an aggregation
+	// rule that nothing consumes yet.
+	if auth.LastError != nil {
+		entry["last_status_code"] = auth.LastError.StatusCode()
+		if code := strings.TrimSpace(auth.LastError.Code); code != "" {
+			entry["last_error_code"] = code
+		}
+	}
 	entry["success"] = auth.Success
 	entry["failed"] = auth.Failed
 	entry["recent_requests"] = auth.RecentRequestsSnapshot(time.Now())

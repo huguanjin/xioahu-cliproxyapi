@@ -279,6 +279,8 @@ const normalizeAuthFileEntry = (entry: AuthFileEntry): AuthFileEntry => {
   const modified = readDateField(entry);
   const priority = readIntegerField(entry['priority']);
   const weight = readIntegerField(entry['weight']);
+  const lastStatusCode = readIntegerField(entry['last_status_code'] ?? entry.lastStatusCode);
+  const lastErrorCode = readTextField(entry, 'last_error_code');
 
   return {
     ...entry,
@@ -294,6 +296,9 @@ const normalizeAuthFileEntry = (entry: AuthFileEntry): AuthFileEntry => {
     ...(note ? { note } : {}),
     ...(email ? { email } : {}),
     ...(projectId ? { projectId } : {}),
+    // 缺失时不写 0，否则前端会把每个健康凭证都当成「状态码 0」。
+    ...(lastStatusCode === undefined ? {} : { lastStatusCode }),
+    ...(lastErrorCode ? { lastErrorCode } : {}),
   };
 };
 

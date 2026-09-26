@@ -23,6 +23,9 @@ export type AuthFilesToolbarProps = {
   onStatusFilterChange: (mode: AuthFilesStatusFilterMode) => void;
   noProxyOnly: boolean;
   onNoProxyOnlyChange: (value: boolean) => void;
+  statusCodeFilter: string;
+  statusCodeOptions: Array<{ value: string; label: string }>;
+  onStatusCodeFilterChange: (value: string) => void;
   sortMode: AuthFilesSortMode;
   sortOptions: Array<{ value: string; label: string }>;
   onSortModeChange: (value: string) => void;
@@ -58,6 +61,9 @@ export function AuthFilesToolbar(props: AuthFilesToolbarProps) {
     onStatusFilterChange,
     noProxyOnly,
     onNoProxyOnlyChange,
+    statusCodeFilter,
+    statusCodeOptions,
+    onStatusCodeFilterChange,
     sortMode,
     sortOptions,
     onSortModeChange,
@@ -151,6 +157,24 @@ export function AuthFilesToolbar(props: AuthFilesToolbarProps) {
         <IconPlug size={14} />
         <span>{t('auth_files.no_proxy_filter_label')}</span>
       </button>
+
+      {/*
+        状态码筛选独立于上面的分段控件：分段是单选互斥，状态码需要与「问题」叠加。
+        选项由数据生成，没有任何凭证带状态码时只剩「全部」。
+      */}
+      <div
+        className={`${styles.statusCode} ${
+          statusCodeFilter !== 'all' ? styles.statusCodeActive : ''
+        }`}
+      >
+        <Select
+          value={statusCodeFilter}
+          options={statusCodeOptions}
+          onChange={onStatusCodeFilterChange}
+          ariaLabel={t('auth_files.status_code_filter_label')}
+          size="sm"
+        />
+      </div>
 
       <div className={styles.sort}>
         <Select

@@ -286,6 +286,8 @@
     "problem_filter_problem": "Problem",
     "problem_filter_disabled": "Disabled",
     "no_proxy_filter_label": "No proxy bound",
+    "status_code_filter_label": "Status code filter",
+    "status_code_filter_all": "All status codes",
     "display_options_label": "Display options",
     "compact_mode_label": "Compact mode",
     "sort_label": "Sort",
