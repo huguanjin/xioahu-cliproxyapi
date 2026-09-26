@@ -32,10 +32,11 @@ type errorEventAuthStatus struct {
 }
 
 type errorEventQuotaStatus struct {
-	Exceeded      bool       `json:"exceeded"`
-	Reason        string     `json:"reason,omitempty"`
-	NextRecoverAt *time.Time `json:"next_recover_at,omitempty"`
-	BackoffLevel  int        `json:"backoff_level,omitempty"`
+	Exceeded            bool       `json:"exceeded"`
+	Reason              string     `json:"reason,omitempty"`
+	NextRecoverAt       *time.Time `json:"next_recover_at,omitempty"`
+	BackoffLevel        int        `json:"backoff_level,omitempty"`
+	PaymentBackoffLevel int        `json:"payment_backoff_level,omitempty"`
 }
 
 type errorEventModelStatus struct {
@@ -119,14 +120,15 @@ func errorEventModelStatusFrom(model string, authSnapshot *Auth) *errorEventMode
 }
 
 func errorEventQuotaStatusFrom(quota QuotaState) *errorEventQuotaStatus {
-	if !quota.Exceeded && strings.TrimSpace(quota.Reason) == "" && quota.NextRecoverAt.IsZero() && quota.BackoffLevel == 0 {
+	if !quota.Exceeded && strings.TrimSpace(quota.Reason) == "" && quota.NextRecoverAt.IsZero() && quota.BackoffLevel == 0 && quota.PaymentBackoffLevel == 0 {
 		return nil
 	}
 	return &errorEventQuotaStatus{
-		Exceeded:      quota.Exceeded,
-		Reason:        strings.TrimSpace(quota.Reason),
-		NextRecoverAt: timePtrIfSet(quota.NextRecoverAt),
-		BackoffLevel:  quota.BackoffLevel,
+		Exceeded:            quota.Exceeded,
+		Reason:              strings.TrimSpace(quota.Reason),
+		NextRecoverAt:       timePtrIfSet(quota.NextRecoverAt),
+		BackoffLevel:        quota.BackoffLevel,
+		PaymentBackoffLevel: quota.PaymentBackoffLevel,
 	}
 }
 

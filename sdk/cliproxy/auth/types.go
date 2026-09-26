@@ -174,6 +174,10 @@ type QuotaState struct {
 	NextRecoverAt time.Time `json:"next_recover_at"`
 	// BackoffLevel stores the progressive cooldown exponent used for rate limits.
 	BackoffLevel int `json:"backoff_level,omitempty"`
+	// PaymentBackoffLevel stores the progressive cooldown exponent for 402/403
+	// failures. It is kept separate from BackoffLevel so a payment/forbidden
+	// failure cannot inflate the rate-limit ladder (and vice versa).
+	PaymentBackoffLevel int `json:"payment_backoff_level,omitempty"`
 }
 
 // ModelState captures the execution state for a specific model under an auth entry.

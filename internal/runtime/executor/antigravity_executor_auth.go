@@ -184,6 +184,7 @@ func (e *AntigravityExecutor) refreshTokenSingleFlight(ctx context.Context, auth
 				sErr.retryAfter = retryAfter
 			}
 		}
+		sErr.needsCredentialAction = antigravityRefreshTokenIsDead(bodyBytes)
 		return nil, sErr
 	}
 

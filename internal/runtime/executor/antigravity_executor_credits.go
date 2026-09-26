@@ -359,6 +359,27 @@ func antigravityHasValidationRequiredReason(body []byte) bool {
 	return false
 }
 
+// antigravityRefreshTokenIsDead reports whether an OAuth refresh failure proves
+// the credential can never recover on its own. Google answers a revoked or
+// reused refresh token with 400 invalid_grant; no retry brings it back, so the
+// credential is worth taking out of rotation instead of cooling down.
+//
+// Only the RFC 6749 revocation family counts. A generic 400 (malformed request,
+// a bad proxy rewriting the body) and transient failures stay unclassified:
+// wrongly disabling a healthy credential costs an operator far more than
+// cooling down a dead one.
+func antigravityRefreshTokenIsDead(body []byte) bool {
+	if len(body) == 0 {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "error").String())) {
+	case "invalid_grant", "refresh_token_revoked", "refresh_token_reused":
+		return true
+	default:
+		return false
+	}
+}
+
 func newAntigravityStatusErr(statusCode int, body []byte) statusErr {
 	err := statusErr{code: statusCode, msg: string(body)}
 	if statusCode == http.StatusTooManyRequests {

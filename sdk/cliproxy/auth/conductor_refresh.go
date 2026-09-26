@@ -33,6 +33,15 @@ const (
 	quotaBackoffBase          = time.Second
 	quotaBackoffMax           = 30 * time.Minute
 	transientErrorCooldown    = time.Minute
+	// paymentBackoffBase is the first cooldown applied to a 402/403 failure. It
+	// matches the flat 30 minute cooldown this ladder replaces, so the first
+	// failure behaves exactly as before.
+	paymentBackoffBase = 30 * time.Minute
+	// paymentBackoffMax caps the escalated cooldown reached by a credential that
+	// keeps returning 402/403. Unlike rate limits, a rejected credential is often
+	// permanently dead, so the ladder is allowed to grow well past quotaBackoffMax
+	// and quiet the credential down to a couple of retries per day.
+	paymentBackoffMax = 12 * time.Hour
 )
 
 // StartAutoRefresh launches a background loop that evaluates auth freshness
@@ -536,6 +545,12 @@ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessTok
 	now := time.Now()
 	if err != nil {
 		unauthorized := isUnauthorizedError(err)
+		// A revoked refresh token cannot be refreshed back to health, so the
+		// credential is taken out of rotation instead of waiting out a backoff.
+		// Read while unlocked: needsCredentialAction walks the error chain.
+		// Unlike the credential_invalid counter path this fires on the first
+		// failure, because invalid_grant is deterministic rather than flaky.
+		credentialDead := needsCredentialAction(err) && disableCredentialInvalidAuths.Load()
 		shouldReschedule := false
 		m.mu.Lock()
 		if current := m.auths[id]; current != nil {
@@ -557,6 +572,10 @@ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessTok
 		m.mu.Unlock()
 		if shouldReschedule {
 			m.queueRefreshReschedule(id)
+		}
+		// Deferred past the unlock above: Update takes m.mu itself.
+		if credentialDead {
+			m.disableAuthForCredential(ctx, id, refreshCredentialDeadReason(err))
 		}
 		return nil, err
 	}
@@ -592,4 +611,17 @@ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessTok
 		return saved, nil
 	}
 	return updated.Clone(), nil
+}
+
+// refreshCredentialDeadReason describes why a refresh failure took the credential
+// out of rotation, favouring the upstream message so operators can act on it.
+func refreshCredentialDeadReason(err error) string {
+	message := ""
+	if err != nil {
+		message = strings.TrimSpace(err.Error())
+	}
+	if message == "" {
+		return "refresh token rejected and the credential was disabled automatically"
+	}
+	return "refresh token rejected and the credential was disabled automatically: " + message
 }

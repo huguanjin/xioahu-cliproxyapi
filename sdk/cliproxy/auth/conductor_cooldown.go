@@ -649,6 +649,7 @@ func cooldownQuotaEqual(a, b QuotaState) bool {
 	return a.Exceeded == b.Exceeded &&
 		a.Reason == b.Reason &&
 		a.BackoffLevel == b.BackoffLevel &&
+		a.PaymentBackoffLevel == b.PaymentBackoffLevel &&
 		a.NextRecoverAt.Equal(b.NextRecoverAt)
 }
 
@@ -802,12 +803,10 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 						if auth.LastError != nil {
 							auth.StatusMessage = "cloudflare challenge"
 						}
-						state.Quota = QuotaState{
-							Exceeded:      true,
-							Reason:        "cloudflare challenge",
-							NextRecoverAt: next,
-							BackoffLevel:  backoffLevel,
-						}
+						state.Quota.Exceeded = true
+						state.Quota.Reason = "cloudflare challenge"
+						state.Quota.NextRecoverAt = next
+						state.Quota.BackoffLevel = backoffLevel
 					} else if isInvalidGrantResultError(result.Error) {
 						if disableCooling {
 							state.NextRetryAfter = time.Time{}
@@ -831,8 +830,18 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 							if disableCooling {
 								state.NextRetryAfter = time.Time{}
 							} else {
-								next := now.Add(30 * time.Minute)
+								next, paymentLevel := paymentCooldownAfterFailure(state.NextRetryAfter, state.Quota.PaymentBackoffLevel, now)
 								state.NextRetryAfter = next
+								// Fields are assigned individually rather than by
+								// replacing QuotaState: a struct literal would zero the
+								// other ladder's level and let a 403 erase the progress
+								// a credential made through 429s (and vice versa).
+								// Exceeded stays false: a payment rejection is not quota
+								// exhaustion, and setting it would make the aggregation
+								// relabel the reason as "quota".
+								state.Quota.Reason = "payment_required"
+								state.Quota.NextRecoverAt = next
+								state.Quota.PaymentBackoffLevel = paymentLevel
 								suspendReason = "payment_required"
 								shouldSuspendModel = true
 							}
@@ -856,12 +865,10 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 								}
 							}
 							state.NextRetryAfter = next
-							state.Quota = QuotaState{
-								Exceeded:      true,
-								Reason:        "quota",
-								NextRecoverAt: next,
-								BackoffLevel:  backoffLevel,
-							}
+							state.Quota.Exceeded = true
+							state.Quota.Reason = "quota"
+							state.Quota.NextRecoverAt = next
+							state.Quota.BackoffLevel = backoffLevel
 							if !disableCooling {
 								suspendReason = "quota"
 								shouldSuspendModel = true
@@ -1092,10 +1099,11 @@ func mergeModelState(target, source *ModelState) *ModelState {
 		NextRetryAfter: target.NextRetryAfter,
 		LastError:      cloneError(preferred.LastError),
 		Quota: QuotaState{
-			Exceeded:      target.Quota.Exceeded || source.Quota.Exceeded,
-			Reason:        preferred.Quota.Reason,
-			NextRecoverAt: target.Quota.NextRecoverAt,
-			BackoffLevel:  target.Quota.BackoffLevel,
+			Exceeded:            target.Quota.Exceeded || source.Quota.Exceeded,
+			Reason:              preferred.Quota.Reason,
+			NextRecoverAt:       target.Quota.NextRecoverAt,
+			BackoffLevel:        target.Quota.BackoffLevel,
+			PaymentBackoffLevel: target.Quota.PaymentBackoffLevel,
 		},
 		UpdatedAt: target.UpdatedAt,
 	}
@@ -1107,6 +1115,9 @@ func mergeModelState(target, source *ModelState) *ModelState {
 	}
 	if source.Quota.BackoffLevel > merged.Quota.BackoffLevel {
 		merged.Quota.BackoffLevel = source.Quota.BackoffLevel
+	}
+	if source.Quota.PaymentBackoffLevel > merged.Quota.PaymentBackoffLevel {
+		merged.Quota.PaymentBackoffLevel = source.Quota.PaymentBackoffLevel
 	}
 	if source.UpdatedAt.After(merged.UpdatedAt) {
 		merged.UpdatedAt = source.UpdatedAt
@@ -1152,7 +1163,7 @@ func modelStateIsClean(state *ModelState) bool {
 	if state.Unavailable || state.StatusMessage != "" || !state.NextRetryAfter.IsZero() || state.LastError != nil {
 		return false
 	}
-	if state.Quota.Exceeded || state.Quota.Reason != "" || !state.Quota.NextRecoverAt.IsZero() || state.Quota.BackoffLevel != 0 {
+	if state.Quota.Exceeded || state.Quota.Reason != "" || !state.Quota.NextRecoverAt.IsZero() || state.Quota.BackoffLevel != 0 || state.Quota.PaymentBackoffLevel != 0 {
 		return false
 	}
 	return true
@@ -1171,6 +1182,9 @@ func updateAggregatedAvailability(auth *Auth, now time.Time) {
 	quotaExceeded := false
 	quotaRecover := time.Time{}
 	maxBackoffLevel := 0
+	maxPaymentBackoffLevel := 0
+	paymentReason := ""
+	paymentRecover := time.Time{}
 	hasState := false
 	for _, state := range auth.ModelStates {
 		if state == nil {
@@ -1205,6 +1219,15 @@ func updateAggregatedAvailability(auth *Auth, now time.Time) {
 				maxBackoffLevel = state.Quota.BackoffLevel
 			}
 		}
+		if state.Quota.PaymentBackoffLevel > maxPaymentBackoffLevel {
+			maxPaymentBackoffLevel = state.Quota.PaymentBackoffLevel
+			paymentRecover = state.Quota.NextRecoverAt
+			if reason := strings.TrimSpace(state.Quota.Reason); reason != "" {
+				paymentReason = reason
+			}
+		} else if maxPaymentBackoffLevel > 0 && paymentRecover.IsZero() && !state.Quota.NextRecoverAt.IsZero() {
+			paymentRecover = state.Quota.NextRecoverAt
+		}
 	}
 	if !hasState {
 		clearAggregatedAvailability(auth)
@@ -1216,16 +1239,37 @@ func updateAggregatedAvailability(auth *Auth, now time.Time) {
 	} else {
 		auth.NextRetryAfter = time.Time{}
 	}
-	if quotaExceeded {
-		auth.Quota.Exceeded = true
-		auth.Quota.Reason = "quota"
-		auth.Quota.NextRecoverAt = quotaRecover
+	if quotaExceeded || maxPaymentBackoffLevel > 0 {
+		auth.Quota.Exceeded = quotaExceeded
+		if quotaExceeded {
+			auth.Quota.Reason = "quota"
+		} else {
+			auth.Quota.Reason = paymentReason
+			if auth.Quota.Reason == "" {
+				auth.Quota.Reason = "payment_required"
+			}
+		}
+		// Whichever failure recovers last governs the deadline. A payment-only
+		// failure still needs its own, otherwise availabilityBlock sees no recovery
+		// time and the auth stops being blocked.
+		switch {
+		case quotaRecover.IsZero():
+			auth.Quota.NextRecoverAt = paymentRecover
+		case paymentRecover.IsZero():
+			auth.Quota.NextRecoverAt = quotaRecover
+		case paymentRecover.After(quotaRecover):
+			auth.Quota.NextRecoverAt = paymentRecover
+		default:
+			auth.Quota.NextRecoverAt = quotaRecover
+		}
 		auth.Quota.BackoffLevel = maxBackoffLevel
+		auth.Quota.PaymentBackoffLevel = maxPaymentBackoffLevel
 	} else {
 		auth.Quota.Exceeded = false
 		auth.Quota.Reason = ""
 		auth.Quota.NextRecoverAt = time.Time{}
 		auth.Quota.BackoffLevel = 0
+		auth.Quota.PaymentBackoffLevel = 0
 	}
 }
 
@@ -1269,6 +1313,7 @@ func clearAuthStateOnSuccess(auth *Auth, now time.Time) {
 	auth.Quota.Reason = ""
 	auth.Quota.NextRecoverAt = time.Time{}
 	auth.Quota.BackoffLevel = 0
+	auth.Quota.PaymentBackoffLevel = 0
 	auth.LastError = nil
 	auth.NextRetryAfter = time.Time{}
 	auth.UpdatedAt = now
@@ -1866,12 +1911,10 @@ func applyAuthFailureState(auth *Auth, resultErr *Error, retryAfter *time.Durati
 	if isCloudflareChallengeResultError(resultErr) {
 		auth.StatusMessage = "cloudflare challenge"
 		next, backoffLevel := nextCloudflareCooldown(auth.Quota.BackoffLevel, disableCooling, now)
-		auth.Quota = QuotaState{
-			Exceeded:      true,
-			Reason:        "cloudflare challenge",
-			NextRecoverAt: next,
-			BackoffLevel:  backoffLevel,
-		}
+		auth.Quota.Exceeded = true
+		auth.Quota.Reason = "cloudflare challenge"
+		auth.Quota.NextRecoverAt = next
+		auth.Quota.BackoffLevel = backoffLevel
 		auth.NextRetryAfter = next
 		return
 	}
@@ -1897,7 +1940,13 @@ func applyAuthFailureState(auth *Auth, resultErr *Error, retryAfter *time.Durati
 		if disableCooling {
 			auth.NextRetryAfter = time.Time{}
 		} else {
-			auth.NextRetryAfter = now.Add(30 * time.Minute)
+			next, paymentLevel := paymentCooldownAfterFailure(auth.NextRetryAfter, auth.Quota.PaymentBackoffLevel, now)
+			auth.NextRetryAfter = next
+			// Exceeded is reserved for quota exhaustion; a payment rejection only
+			// records the reason and its own recovery deadline.
+			auth.Quota.Reason = "payment_required"
+			auth.Quota.NextRecoverAt = next
+			auth.Quota.PaymentBackoffLevel = paymentLevel
 		}
 	case 404:
 		auth.StatusMessage = "not_found"
@@ -1966,4 +2015,29 @@ func nextQuotaCooldown(prevLevel int, disableCooling bool) (time.Duration, int) 
 		return quotaBackoffMax, prevLevel
 	}
 	return cooldown, prevLevel + 1
+}
+
+// paymentCooldownAfterFailure returns the recovery deadline and updated backoff
+// level for a 402/403 failure observed at now.
+//
+// A credential that keeps rejecting requests is usually dead rather than
+// rate-limited, so unlike quota cooling this ladder is never reset by the
+// passing of a window alone; it only resets on a successful request. Failures
+// that land while the previous window is still open reuse that window, so a
+// burst of in-flight failures advances the ladder at most once per window.
+func paymentCooldownAfterFailure(prevNextRetryAfter time.Time, prevLevel int, now time.Time) (time.Time, int) {
+	if prevLevel < 0 {
+		prevLevel = 0
+	}
+	if prevNextRetryAfter.After(now) {
+		return prevNextRetryAfter, prevLevel
+	}
+	cooldown := paymentBackoffBase * time.Duration(1<<prevLevel)
+	if cooldown < paymentBackoffBase || cooldown <= 0 {
+		cooldown = paymentBackoffBase
+	}
+	if cooldown >= paymentBackoffMax {
+		return now.Add(paymentBackoffMax), prevLevel
+	}
+	return now.Add(cooldown), prevLevel + 1
 }
