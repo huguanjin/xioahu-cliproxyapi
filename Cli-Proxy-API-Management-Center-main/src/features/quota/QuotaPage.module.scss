@@ -25,7 +25,7 @@
   min-width: 0;
 }
 
-/* tabs 与排序同一行：tabs 会自己横向滚动，所以排序固定不压缩。 */
+/* tabs 与搜索/排序同一行：tabs 会自己横向滚动，所以控件固定不压缩。 */
 
 .tabsRow {
   display: flex;
@@ -39,6 +39,37 @@
   }
 }
 
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 320px;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.search {
+  flex: 0 1 260px;
+  min-width: 140px;
+
+  /* Input 组件外层是 .form-group，去掉其默认下边距 */
+  :global(.form-group) {
+    margin-bottom: 0;
+  }
+
+  /* 与同排的 Select(size="sm") 对齐高度，避免一行两高。 */
+  :global(.input) {
+    height: 28px;
+    border-radius: 8px;
+    font-size: 12px;
+    padding: 0 32px 0 10px;
+  }
+}
+
+.searchIcon {
+  color: var(--text-quaternary);
+}
+
 .sort {
   flex: 0 0 auto;
   min-width: 148px;
@@ -50,8 +81,18 @@
     align-items: stretch;
   }
 
+  .controls {
+    flex: 0 0 auto;
+    justify-content: space-between;
+  }
+
+  .search {
+    flex: 1 1 auto;
+    max-width: none;
+  }
+
   .sort {
-    width: 100%;
+    width: auto;
   }
 }
 

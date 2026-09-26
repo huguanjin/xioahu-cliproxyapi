@@ -13,14 +13,17 @@ import { useTranslation } from 'react-i18next';
 import { authFilesApi } from '@/services/api';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { IconSearch } from '@/components/ui/icons';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { useNow } from '@/hooks/useNow';
 import { useRevealGroup } from '@/hooks/motion';
 import { useAuthStore, useNotificationStore, useQuotaStore, useThemeStore } from '@/stores';
 import type { AuthFileItem, ResolvedTheme } from '@/types';
 import { ProviderTabs } from '@/features/authFiles/components/ProviderTabs';
+import { buildWildcardSearch } from '@/features/authFiles/logic';
 import { notifyAuthFilesChanged } from '@/features/authFiles/authFilesEvents';
 import { AntigravityQuotaSummary } from './components/AntigravityQuotaSummary';
 import { QuotaHeader } from './components/QuotaHeader';
@@ -38,6 +41,7 @@ import {
 import {
   buildTabCounts,
   classifyQuotaFiles,
+  filterEntriesBySearch,
   filterEntriesByTab,
   paginate,
   sortQuotaEntries,
@@ -74,6 +78,7 @@ export function QuotaPage() {
     () => readQuotaUiState()?.sortMode ?? 'default'
   );
   const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   // 页头 + tabs 的入场级联（标题 → meta → 动作 → tabs，级差 70ms）
   const revealRef = useRevealGroup<HTMLDivElement>();
@@ -137,7 +142,16 @@ export function QuotaPage() {
 
   const entries = useMemo(() => classifyQuotaFiles(files), [files]);
   const tabCounts = useMemo(() => buildTabCounts(entries), [entries]);
-  const filteredEntries = useMemo(() => filterEntriesByTab(entries, tab), [entries, tab]);
+
+  const normalizedSearch = search.trim();
+  const wildcardSearch = useMemo(() => buildWildcardSearch(normalizedSearch), [normalizedSearch]);
+
+  // tab 与搜索词依次收窄，下游（排序/分页/空态/批量条）只认这一个结果集。
+  const filteredEntries = useMemo(
+    () =>
+      filterEntriesBySearch(filterEntriesByTab(entries, tab), normalizedSearch, wildcardSearch),
+    [entries, tab, normalizedSearch, wildcardSearch]
+  );
 
   const resolveNextRecovery = useCallback(
     (entry: QuotaFileEntry) => nextRecoveryMs(entry.type, getQuota(entry), sortNow),
@@ -164,6 +178,18 @@ export function QuotaPage() {
     setSortMode(next as QuotaSortMode);
     setPage(1);
     writeQuotaUiState({ sortMode: next as QuotaSortMode });
+  }, []);
+
+  // 搜索词不入 sessionStorage：额度页是「点开即看」的巡检页，
+  // 残留的关键字会让刷新后的空网格看起来像凭证丢了。
+  const handleSearchChange = useCallback((next: string) => {
+    setSearch(next);
+    setPage(1);
+  }, []);
+
+  const clearSearch = useCallback(() => {
+    setSearch('');
+    setPage(1);
   }, []);
 
   const sortOptions = useMemo(
@@ -377,7 +403,10 @@ export function QuotaPage() {
 
   /* ---------- 渲染 ---------- */
 
+  const hasSearch = normalizedSearch.length > 0;
+  // 空态分因：搜索无命中 ≠ 本就没有可查额度的凭证，两者文案与出口都不同。
   const isEmpty = !loading && filteredEntries.length === 0;
+  const isSearchEmpty = isEmpty && hasSearch;
 
   return (
     <div className={styles.page} ref={revealRef}>
@@ -394,8 +423,8 @@ export function QuotaPage() {
       <AntigravityQuotaSummary />
 
       <section className={styles.workbench}>
-        {/* tabs + 排序作为一个整体入场（useRevealGroup 会给每个 [data-reveal]
-            后代加一级级差，所以排序控件放在同一个节点里而不是做兄弟） */}
+        {/* tabs + 搜索 + 排序作为一个整体入场（useRevealGroup 会给每个 [data-reveal]
+            后代加一级级差，所以控件放在同一个节点里而不是做兄弟） */}
         <div className={styles.tabsRow} data-reveal>
           <ProviderTabs
             types={TAB_IDS}
@@ -404,14 +433,25 @@ export function QuotaPage() {
             resolvedTheme={resolvedTheme}
             onChange={handleTabChange}
           />
-          <div className={styles.sort}>
-            <Select
-              value={sortMode}
-              options={sortOptions}
-              onChange={handleSortModeChange}
-              ariaLabel={t('quota_management.sort_label')}
-              size="sm"
-            />
+          <div className={styles.controls}>
+            <div className={styles.search}>
+              <Input
+                value={search}
+                onChange={(event) => handleSearchChange(event.target.value)}
+                placeholder={t('quota_management.search_placeholder')}
+                aria-label={t('quota_management.search_label')}
+                rightElement={<IconSearch className={styles.searchIcon} size={15} />}
+              />
+            </div>
+            <div className={styles.sort}>
+              <Select
+                value={sortMode}
+                options={sortOptions}
+                onChange={handleSortModeChange}
+                ariaLabel={t('quota_management.sort_label')}
+                size="sm"
+              />
+            </div>
           </div>
         </div>
 
@@ -427,6 +467,16 @@ export function QuotaPage() {
               <Skeleton key={index} height={168} rounded={14} />
             ))}
           </div>
+        ) : isSearchEmpty ? (
+          <EmptyState
+            title={t('quota_management.search_empty_title')}
+            description={t('quota_management.search_empty_desc')}
+            action={
+              <Button variant="secondary" size="sm" onClick={clearSearch}>
+                {t('quota_management.search_clear')}
+              </Button>
+            }
+          />
         ) : isEmpty ? (
           <EmptyState
             title={

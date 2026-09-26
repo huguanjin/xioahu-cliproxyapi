@@ -4,6 +4,7 @@
  */
 
 import type { AuthFileItem } from '@/types';
+import { matchesAuthFileSearch } from '@/features/authFiles/logic';
 import { ANTIGRAVITY_CONFIG } from './providers/antigravity/data';
 import { CLAUDE_CONFIG } from './providers/claude/data';
 import { CODEX_CONFIG } from './providers/codex/data';
@@ -47,6 +48,22 @@ export function classifyQuotaFiles(files: AuthFileItem[]): QuotaFileEntry[] {
 export function filterEntriesByTab(entries: QuotaFileEntry[], tab: QuotaTabId): QuotaFileEntry[] {
   if (tab === 'all') return entries;
   return entries.filter((entry) => entry.type === tab);
+}
+
+/**
+ * Keep only entries whose credential matches the search term.
+ *
+ * Matching is delegated to the credential library's matcher so both pages share
+ * one search language — case-insensitive substrings over name, type, provider,
+ * email and project ID, with `*` as a wildcard. Empty term means no filtering.
+ */
+export function filterEntriesBySearch(
+  entries: QuotaFileEntry[],
+  term: string,
+  wildcard: RegExp | null
+): QuotaFileEntry[] {
+  if (!term) return entries;
+  return entries.filter((entry) => matchesAuthFileSearch(entry.file, term, wildcard));
 }
 
 /**

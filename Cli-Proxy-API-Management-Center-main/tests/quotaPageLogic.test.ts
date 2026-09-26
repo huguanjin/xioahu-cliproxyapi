@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import { QUOTA_PAGE_SIZE } from '@/features/quota/constants';
+import { buildWildcardSearch } from '@/features/authFiles/logic';
 import {
   buildTabCounts,
   classifyQuotaFiles,
+  filterEntriesBySearch,
   filterEntriesByTab,
   isQuotaRefreshDisabled,
   paginate,
@@ -74,6 +76,50 @@ describe('filterEntriesByTab', () => {
       'codex-b.json',
     ]);
     expect(filterEntriesByTab(entries, 'antigravity')).toEqual([]);
+  });
+});
+
+describe('filterEntriesBySearch', () => {
+  // Accounts are what the operator actually recognises, so the matcher has to
+  // reach email — not just the file name shown on the card.
+  const SEARCHABLE: AuthFileItem[] = [
+    file('claude-1.json', 'claude', { email: 'alice@example.com' }),
+    file('claude-2.json', 'claude', { email: 'bob@corp.io' }),
+    file('codex-1.json', 'codex', { email: 'alice@corp.io' }),
+  ];
+  const entries = classifyQuotaFiles(SEARCHABLE);
+  const byName = (list: QuotaFileEntry[]) => list.map((entry) => entry.file.name);
+
+  const search = (term: string) =>
+    filterEntriesBySearch(entries, term, buildWildcardSearch(term));
+
+  test('returns the input untouched for an empty term', () => {
+    expect(filterEntriesBySearch(entries, '', null)).toBe(entries);
+  });
+
+  test('matches a partial account name case-insensitively', () => {
+    expect(byName(search('ALICE'))).toEqual(['claude-1.json', 'codex-1.json']);
+  });
+
+  test('matches on the file name too', () => {
+    expect(byName(search('claude-2'))).toEqual(['claude-2.json']);
+  });
+
+  test('matches on the provider type', () => {
+    expect(byName(search('codex'))).toEqual(['codex-1.json']);
+  });
+
+  test('supports * as a wildcard instead of a literal', () => {
+    expect(byName(search('alice@*'))).toEqual(['claude-1.json', 'codex-1.json']);
+    expect(byName(search('*corp.io'))).toEqual(['claude-2.json', 'codex-1.json']);
+  });
+
+  test('returns an empty list rather than throwing when nothing matches', () => {
+    expect(search('nobody@nowhere')).toEqual([]);
+  });
+
+  test('preserves the incoming order', () => {
+    expect(byName(search('.'))).toEqual(byName(entries));
   });
 });
 
