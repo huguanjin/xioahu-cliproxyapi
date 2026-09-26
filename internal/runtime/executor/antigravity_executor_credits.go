@@ -333,6 +333,32 @@ func antigravityHasExplicitCreditsBalanceExhaustedReason(body []byte) bool {
 	return false
 }
 
+// antigravityHasValidationRequiredReason reports whether the upstream body asks
+// the account owner to complete Google's account verification step. The account
+// stays unusable until a human acts, so callers treat this as credential-level
+// rather than a transient cooldown.
+func antigravityHasValidationRequiredReason(body []byte) bool {
+	if len(body) == 0 {
+		return false
+	}
+	details := gjson.GetBytes(body, "error.details")
+	if !details.Exists() || !details.IsArray() {
+		return false
+	}
+	for _, detail := range details.Array() {
+		if detail.Get("@type").String() != "type.googleapis.com/google.rpc.ErrorInfo" {
+			continue
+		}
+		// Require the Antigravity domain so an identical reason from another
+		// upstream surface cannot disable an unrelated credential.
+		if !strings.EqualFold(strings.TrimSpace(detail.Get("domain").String()), "cloudcode-pa.googleapis.com") {
+			continue
+		}
+		return strings.EqualFold(strings.TrimSpace(detail.Get("reason").String()), "VALIDATION_REQUIRED")
+	}
+	return false
+}
+
 func newAntigravityStatusErr(statusCode int, body []byte) statusErr {
 	err := statusErr{code: statusCode, msg: string(body)}
 	if statusCode == http.StatusTooManyRequests {
@@ -340,6 +366,7 @@ func newAntigravityStatusErr(statusCode int, body []byte) statusErr {
 			err.retryAfter = retryAfter
 		}
 	}
+	err.needsCredentialAction = antigravityHasValidationRequiredReason(body)
 	return err
 }
 func (e *AntigravityExecutor) maybeRefreshAntigravityCreditsHint(ctx context.Context, auth *cliproxyauth.Auth, accessToken string) {

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -18,11 +19,33 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/thinking"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
+	log "github.com/sirupsen/logrus"
 )
 
 var quotaCooldownDisabled atomic.Bool
 
 var transientErrorCooldownSeconds atomic.Int64
+
+// credentialInvalidHitsBeforeDisable is how many credential_invalid failures a
+// single auth may accumulate before it is taken out of rotation. One hit can be
+// a fluke (an upstream hiccup, a stale token mid-refresh); two in a row is the
+// account genuinely needing operator action.
+const credentialInvalidHitsBeforeDisable = 2
+
+// disableCredentialInvalidAuths toggles auto-disabling credentials the upstream
+// rejected as invalid. Off by default: taking an auth out of rotation is a
+// destructive, operator-visible action.
+var disableCredentialInvalidAuths atomic.Bool
+
+// credentialInvalidHits counts consecutive credential_invalid results per auth.
+// Entries are dropped once the auth is disabled or succeeds again.
+var credentialInvalidHits sync.Map
+
+// SetDisableCredentialInvalidAuths toggles auto-disabling credentials that the
+// upstream reports as unusable until a human intervenes.
+func SetDisableCredentialInvalidAuths(disable bool) {
+	disableCredentialInvalidAuths.Store(disable)
+}
 
 // SetQuotaCooldownDisabled toggles quota cooldown scheduling globally.
 func SetQuotaCooldownDisabled(disable bool) {
@@ -707,6 +730,9 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 	setModelQuota := false
 	var authSnapshot *Auth
 	cooldownStateChanged := false
+	// Deferred past the unlock below: Manager.Update takes m.mu itself.
+	disableCredential := false
+	credentialDisableReason := ""
 
 	m.mu.Lock()
 	if auth, ok := m.auths[result.AuthID]; ok && auth != nil {
@@ -719,8 +745,17 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 		auth.recordRecentRequest(now, result.Success)
 		if result.Success {
 			auth.Success++
+			credentialInvalidHits.Delete(result.AuthID)
 		} else {
 			auth.Failed++
+			if isCredentialInvalidResultError(result.Error) && disableCredentialInvalidAuths.Load() {
+				hits := incrementCredentialInvalidHits(result.AuthID)
+				if hits >= credentialInvalidHitsBeforeDisable {
+					disableCredential = true
+					credentialDisableReason = credentialInvalidReason(result.Error)
+					credentialInvalidHits.Delete(result.AuthID)
+				}
+			}
 		}
 
 		if result.Success {
@@ -863,6 +898,9 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 		}
 	}
 	m.mu.Unlock()
+	if disableCredential {
+		m.disableAuthForCredential(ctx, result.AuthID, credentialDisableReason)
+	}
 	if m.scheduler != nil && authSnapshot != nil {
 		m.scheduler.upsertAuth(authSnapshot)
 	}
@@ -884,6 +922,64 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 
 	m.hook.OnResult(ctx, result)
 	m.publishErrorEvent(result, authSnapshot)
+}
+
+// incrementCredentialInvalidHits records one credential_invalid failure for the
+// auth and returns the running total.
+func incrementCredentialInvalidHits(authID string) int {
+	value, _ := credentialInvalidHits.LoadOrStore(authID, new(atomic.Int64))
+	counter, ok := value.(*atomic.Int64)
+	if !ok || counter == nil {
+		return 0
+	}
+	return int(counter.Add(1))
+}
+
+// credentialInvalidReason describes why the credential was taken out of
+// rotation, favouring the upstream message so operators can act on it.
+func credentialInvalidReason(err *Error) string {
+	if err == nil || strings.TrimSpace(err.Message) == "" {
+		return "credential requires manual action and was disabled automatically"
+	}
+	return "credential requires manual action and was disabled automatically: " + strings.TrimSpace(err.Message)
+}
+
+// disableAuthForCredential flips an auth to disabled so the scheduler stops
+// selecting it. Must not be called while holding m.mu: Update takes it.
+func (m *Manager) disableAuthForCredential(ctx context.Context, authID, reason string) {
+	if m == nil || authID == "" {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	m.mu.RLock()
+	current := m.auths[authID]
+	if current == nil {
+		m.mu.RUnlock()
+		return
+	}
+	if current.Disabled || current.Status == StatusDisabled {
+		m.mu.RUnlock()
+		return
+	}
+	target := current.Clone()
+	m.mu.RUnlock()
+
+	target.Disabled = true
+	target.Status = StatusDisabled
+	target.StatusMessage = reason
+	target.Unavailable = false
+	if target.Metadata == nil {
+		target.Metadata = make(map[string]any)
+	}
+	target.Metadata["disabled"] = true
+
+	if _, errUpdate := m.Update(ctx, target); errUpdate != nil {
+		log.Warnf("failed to auto-disable auth %s: %v", authID, errUpdate)
+		return
+	}
+	log.Warnf("auth %s auto-disabled: %s", authID, reason)
 }
 
 func (m *Manager) recordExecutionResult(ctx context.Context, result Result, auth *Auth, ephemeral bool) {
@@ -1219,6 +1315,24 @@ func isRequestScopedError(err error) bool {
 	return ok && requestErr != nil && requestErr.IsRequestScoped()
 }
 
+// credentialActionProvider is implemented by executor errors that describe a
+// failure the credential cannot recover from on its own, such as an account
+// that needs re-verification before the upstream will serve it again.
+type credentialActionProvider interface {
+	CredentialNeedsAction() bool
+}
+
+func needsCredentialAction(err error) bool {
+	if err == nil {
+		return false
+	}
+	var provider credentialActionProvider
+	if errors.As(err, &provider) && provider != nil {
+		return provider.CredentialNeedsAction()
+	}
+	return false
+}
+
 func resultErrorFromError(err error) *Error {
 	if err == nil {
 		return nil
@@ -1234,6 +1348,10 @@ func resultErrorFromError(err error) *Error {
 		resultErr.HTTPStatus = statusCodeFromError(err)
 	}
 	switch {
+	case needsCredentialAction(err):
+		// The credential is broken until a human fixes it. Nothing may reclassify
+		// this, since the whole point is to stop rotating back onto it.
+		resultErr.Code = credentialInvalidErrorCode
 	case isRequestScopedError(err) || isRequestInvalidError(err):
 		// Prefer true request-scoped faults (including Claude OAuth cancellation)
 		// over the broader connection-lifecycle classification.
@@ -1251,6 +1369,10 @@ func resultErrorFromError(err error) *Error {
 // shouldSkipCredentialCooldown reports failures that must not mark auth/model cooling.
 // Connection lifecycle is intentionally separate from request_scoped so transport
 // drops do not also stop credential rotation via isRequestInvalidError.
+//
+// credential_invalid is deliberately NOT listed: the ordinary cooldown is what
+// keeps the auth from being hammered between the first hit and the disable, and
+// disabling clears the cooldown state anyway.
 func shouldSkipCredentialCooldown(err *Error) bool {
 	return isRequestScopedResultError(err) || isConnectionLifecycleResultError(err)
 }
@@ -1436,6 +1558,12 @@ func isInvalidGrantResultError(err *Error) bool {
 		return false
 	}
 	return isInvalidGrantErrorMessage(err.Code) || isInvalidGrantErrorMessage(err.Message)
+}
+
+// isCredentialInvalidResultError reports failures the credential cannot recover
+// from on its own. MarkResult counts them and disables the auth at the threshold.
+func isCredentialInvalidResultError(err *Error) bool {
+	return err != nil && err.Code == credentialInvalidErrorCode
 }
 
 func isModelSupportResultError(err *Error) bool {

@@ -207,6 +207,12 @@ type QuotaExceeded struct {
 	// When all free-tier auths are exhausted (429/503), the conductor retries with
 	// an auth that has available Google One AI credits.
 	AntigravityCredits bool `yaml:"antigravity-credits" json:"antigravity-credits"`
+
+	// DisableUnauthorizedAuths disables credentials automatically once the upstream
+	// reports them as unusable until a human intervenes (for example Antigravity
+	// accounts that need Google account verification). Disabled by default: taking
+	// an auth out of rotation is operator-visible and must be opted into.
+	DisableUnauthorizedAuths bool `yaml:"disable-unauthorized-auths" json:"disable-unauthorized-auths"`
 }
 
 // RoutingConfig configures how credentials are selected for requests.

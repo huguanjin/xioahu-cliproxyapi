@@ -877,6 +877,10 @@ type statusErr struct {
 	code       int
 	msg        string
 	retryAfter *time.Duration
+	// needsCredentialAction marks upstream failures that stay broken until a
+	// human fixes the credential (e.g. re-verifying the account). The conductor
+	// counts them and takes the credential out of rotation.
+	needsCredentialAction bool
 }
 
 func (e statusErr) Error() string {
@@ -887,3 +891,7 @@ func (e statusErr) Error() string {
 }
 func (e statusErr) StatusCode() int            { return e.code }
 func (e statusErr) RetryAfter() *time.Duration { return e.retryAfter }
+
+// CredentialNeedsAction reports whether the failure requires manual operator
+// intervention before the credential can serve requests again.
+func (e statusErr) CredentialNeedsAction() bool { return e.needsCredentialAction }

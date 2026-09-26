@@ -6,6 +6,11 @@ const requestScopedErrorCode = "request_scoped"
 // must skip credential cooldown without being treated as request-scoped faults.
 const connectionLifecycleErrorCode = "connection_lifecycle"
 
+// credentialInvalidErrorCode marks upstream failures the credential itself
+// cannot recover from: the account stays unusable until an operator acts, so
+// cooling it down only delays the next failure on the same credential.
+const credentialInvalidErrorCode = "credential_invalid"
+
 // Error describes an authentication related failure in a provider agnostic format.
 type Error struct {
 	// Code is a short machine readable identifier.
