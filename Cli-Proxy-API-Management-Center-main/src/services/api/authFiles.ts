@@ -69,6 +69,43 @@ type AuthFileBatchPatchResult = {
   failed: AuthFileBatchFailure[];
 };
 
+/** 单条自检失败记录（后端 credentialSelfTestFailureEntry）。 */
+export type SelfTestFailureEntry = {
+  auth_id: string;
+  provider: string;
+  label?: string;
+  status_code: number;
+  message?: string;
+  /** deterministic=凭证自身问题；transient=网络/上游临时故障。 */
+  kind: string;
+  /** 连续确定性失败次数。 */
+  strikes: number;
+  cooldown_until?: string;
+};
+
+/** 一次自检运行的汇总报告（后端 credentialSelfTestResponse）。 */
+export type SelfTestReport = {
+  started_at: string;
+  finished_at: string;
+  manual: boolean;
+  concurrency: number;
+  timeout: string;
+  probed: number;
+  skipped: number;
+  healthy: number;
+  cooling: number;
+  deterministic: number;
+  escalated: number;
+  transient: number;
+  failures?: SelfTestFailureEntry[];
+};
+
+/** 自检状态：定时开关 + 最近一次运行的报告。 */
+export type SelfTestStatusResponse = {
+  schedule_enabled: boolean;
+  last_report?: SelfTestReport;
+};
+
 const getStatusCode = (err: unknown): number | undefined => {
   if (!err || typeof err !== 'object') return undefined;
   if ('status' in err) return (err as StatusError).status;
@@ -517,6 +554,15 @@ export const authFilesApi = {
     const blob = await authFilesApi.download(name);
     return blob.text();
   },
+
+  // 凭证自检（后端定时/手动批量测试）
+  getSelfTestStatus: () =>
+    apiClient.get<SelfTestStatusResponse>('/credential-selftest'),
+
+  setSelfTestSchedule: (enabled: boolean) =>
+    apiClient.patch<{ schedule_enabled: boolean }>('/credential-selftest', { enabled }),
+
+  runSelfTest: () => apiClient.post<SelfTestReport>('/credential-selftest/run', {}),
 
   // OAuth 排除模型
   async getOauthExcludedModels(): Promise<Record<string, string[]>> {

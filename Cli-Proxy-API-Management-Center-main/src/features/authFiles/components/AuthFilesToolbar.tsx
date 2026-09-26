@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
-import { IconPlug, IconSearch, IconSlidersHorizontal, IconTrash2 } from '@/components/ui/icons';
+import { IconPlug, IconSatellite, IconSearch, IconSlidersHorizontal, IconTrash2 } from '@/components/ui/icons';
 import {
   ABSOLUTE_MAX_CARD_PAGE_SIZE,
   MIN_CARD_PAGE_SIZE,
@@ -42,6 +42,10 @@ export type AuthFilesToolbarProps = {
   clearProxyDisabled: boolean;
   clearProxyLoading: boolean;
   onClearProxy: () => void;
+  selfTestLabel: string;
+  selfTestDisabled: boolean;
+  selfTestRunning: boolean;
+  onSelfTest: () => void;
   deleteLabel: string;
   deleteDisabled: boolean;
   deleteLoading: boolean;
@@ -80,6 +84,10 @@ export function AuthFilesToolbar(props: AuthFilesToolbarProps) {
     clearProxyDisabled,
     clearProxyLoading,
     onClearProxy,
+    selfTestLabel,
+    selfTestDisabled,
+    selfTestRunning,
+    onSelfTest,
     deleteLabel,
     deleteDisabled,
     deleteLoading,
@@ -261,6 +269,20 @@ export function AuthFilesToolbar(props: AuthFilesToolbarProps) {
       >
         {clearProxyLoading ? <LoadingSpinner size={13} /> : <IconPlug size={14} />}
         {clearProxyLabel}
+      </button>
+
+      {/*
+        批量测试独立于删除类操作：它只探测与展示，不改动凭证集合，
+        因此放在「清除代理」与「删除筛选结果」之间——破坏性操作仍在最右端。
+      */}
+      <button
+        type="button"
+        className={styles.selfTestAction}
+        onClick={onSelfTest}
+        disabled={selfTestDisabled}
+      >
+        {selfTestRunning ? <LoadingSpinner size={13} /> : <IconSatellite size={14} />}
+        {selfTestLabel}
       </button>
 
       <button

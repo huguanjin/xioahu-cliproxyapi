@@ -1,0 +1,210 @@
+@use '../../../styles/mixins' as *;
+
+/* 凭证批量测试弹窗：汇总网格 + 失败明细滚动区 */
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.description {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+/* ---------- 定时开关 ---------- */
+
+.scheduleRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+}
+
+.scheduleLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.scheduleState {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* ---------- 错误 ---------- */
+
+.errorBanner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--danger-color, #d9534f);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--danger-color, #d9534f) 10%, transparent);
+  font-size: 12px;
+  color: var(--danger-color, #d9534f);
+}
+
+.empty {
+  padding: 24px 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* ---------- 运行元信息 ---------- */
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+/* ---------- 汇总网格 ---------- */
+
+.summaryGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+  gap: 8px;
+}
+
+.summaryCell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 6px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+}
+
+.summaryValue {
+  font-size: 18px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.summaryLabel {
+  font-size: 10px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.summaryHealthy .summaryValue {
+  color: var(--success-color, #3fa66a);
+}
+
+.summaryCooling .summaryValue {
+  color: var(--warning-color, #d9a23b);
+}
+
+.summaryEscalated .summaryValue {
+  color: var(--danger-color, #d9534f);
+}
+
+/* ---------- 失败明细 ---------- */
+
+.failures {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.failuresTitle {
+  position: sticky;
+  top: 0;
+  padding: 4px 0;
+  background: var(--bg-primary);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.failure {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-left: 3px solid var(--warning-color, #d9a23b);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+}
+
+.failureDeterministic {
+  border-left-color: var(--danger-color, #d9534f);
+}
+
+.failureHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.failureStatus {
+  flex: 0 0 auto;
+  min-width: 30px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--bg-primary);
+  font-size: 11px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--text-primary);
+}
+
+.failureLabel {
+  flex: 1 1 auto;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.failureStrikes {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.failureMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.failureKind {
+  font-weight: 600;
+}
+
+.failureMessage {
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .failure,
+  .summaryCell {
+    transition: none;
+  }
+}

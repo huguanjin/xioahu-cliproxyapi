@@ -33,6 +33,7 @@ import { BatchActionBar } from '@/features/authFiles/components/BatchActionBar';
 import { OAuthExcludedCard } from '@/features/authFiles/components/OAuthExcludedCard';
 import { OAuthModelAliasCard } from '@/features/authFiles/components/OAuthModelAliasCard';
 import { ProviderTabs } from '@/features/authFiles/components/ProviderTabs';
+import { SelfTestDialog } from '@/features/authFiles/components/SelfTestDialog';
 import { VaultHeader } from '@/features/authFiles/components/VaultHeader';
 import { VaultPulse } from '@/features/authFiles/components/VaultPulse';
 import { invalidateAuthFileDerivedCaches } from '@/features/authFiles/cacheInvalidation';
@@ -107,6 +108,7 @@ export function AuthFilesPage() {
   const [viewMode, setViewMode] = useState<'diagram' | 'list'>('list');
   const [sortMode, setSortMode] = useState<AuthFilesSortMode>('default');
   const [uiStateHydrated, setUiStateHydrated] = useState(false);
+  const [selfTestOpen, setSelfTestOpen] = useState(false);
 
   const {
     modelsModalOpen,
@@ -748,6 +750,10 @@ export function AuthFilesPage() {
           }
           clearProxyLoading={clearingAllProxy}
           onClearProxy={handleClearAllProxy}
+          selfTestLabel={t('auth_files.selftest_button')}
+          selfTestDisabled={disableControls || selfTestOpen}
+          selfTestRunning={selfTestOpen}
+          onSelfTest={() => setSelfTestOpen(true)}
           deleteLabel={deleteAllButtonLabel}
           deleteDisabled={disableControls || loading || deletingAll || files.length === 0}
           deleteLoading={deletingAll}
@@ -892,6 +898,8 @@ export function AuthFilesPage() {
           onDeleteAlias={handleDeleteAlias}
         />
       </div>
+
+      <SelfTestDialog open={selfTestOpen} onClose={() => setSelfTestOpen(false)} />
 
       <AuthFileModelsModal
         open={modelsModalOpen}
