@@ -10,6 +10,10 @@
   gap: 20px;
   width: 100%;
   min-width: 0;
+  /* 底部为悬浮批量条留出实时高度 */
+  padding-bottom: calc(
+    var(--quota-action-bar-height, 0px) + 16px + env(safe-area-inset-bottom, 0px)
+  );
 }
 
 /* ---------- 工作区（tabs + 网格 + 分页） ---------- */

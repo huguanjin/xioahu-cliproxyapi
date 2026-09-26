@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
-import { IconRefreshCw } from '@/components/ui/icons';
+import { Button } from '@/components/ui/Button';
+import { IconAlertTriangle, IconRefreshCw } from '@/components/ui/icons';
 import { useCountUp } from '@/hooks/motion';
 import styles from './QuotaHeader.module.scss';
 
@@ -10,6 +11,7 @@ export type QuotaHeaderProps = {
   refreshing: boolean;
   disableControls: boolean;
   onRefreshAll: () => void;
+  onSelectFailed: () => void;
 };
 
 /**
@@ -20,8 +22,15 @@ export type QuotaHeaderProps = {
  * （标题 0ms → meta 70ms → 动作 140ms → tabs 210ms）。
  */
 export function QuotaHeader(props: QuotaHeaderProps) {
-  const { totalCount, loadedCount, attentionCount, refreshing, disableControls, onRefreshAll } =
-    props;
+  const {
+    totalCount,
+    loadedCount,
+    attentionCount,
+    refreshing,
+    disableControls,
+    onRefreshAll,
+    onSelectFailed,
+  } = props;
   const { t } = useTranslation();
   // 批量结果陆续落地时，「已加载」是页面上唯一滚动的数字
   const displayLoadedCount = useCountUp(loadedCount);
@@ -55,6 +64,18 @@ export function QuotaHeader(props: QuotaHeaderProps) {
         </p>
       </div>
       <div className={styles.actions} data-reveal>
+        {attentionCount > 0 && (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={onSelectFailed}
+            disabled={disableControls}
+            title={t('quota_management.select_failed')}
+          >
+            <IconAlertTriangle size={14} />
+            {t('quota_management.select_failed')}
+          </Button>
+        )}
         <button
           type="button"
           className={styles.primaryAction}

@@ -1209,6 +1209,7 @@
     "title": "配额管理",
     "description": "集中查看 OAuth 额度与剩余情况",
     "refresh_all_credentials": "刷新全部凭证",
+    "select_failed": "全选失败凭证",
     "sort_label": "排序",
     "sort_default": "默认",
     "sort_soonest": "最快恢复优先",

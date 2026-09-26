@@ -10,6 +10,7 @@
 import { useState, type CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import { IconRefreshCw } from '@/components/ui/icons';
+import { SelectionCheckbox } from '@/components/ui/SelectionCheckbox';
 import type { ResolvedTheme } from '@/types';
 import { resolveQuotaErrorMessage } from '@/utils/quota';
 import {
@@ -33,10 +34,12 @@ export type QuotaCardProps = {
   resolvedTheme: ResolvedTheme;
   canRefresh: boolean;
   resetting: boolean;
+  selected: boolean;
   /** 首屏级联入场延迟；null = 不入场（切 tab / 翻页 / 刷新新挂载的卡片）。 */
   entranceDelayMs?: number | null;
   onRefresh: () => void;
   onReset: () => void;
+  onToggleSelect: (name: string) => void;
 };
 
 export function QuotaCard(props: QuotaCardProps) {
@@ -46,9 +49,11 @@ export function QuotaCard(props: QuotaCardProps) {
     resolvedTheme,
     canRefresh,
     resetting,
+    selected,
     entranceDelayMs,
     onRefresh,
     onReset,
+    onToggleSelect,
   } = props;
   const { t } = useTranslation();
   const adapter = QUOTA_ADAPTERS[entry.type];
@@ -78,10 +83,23 @@ export function QuotaCard(props: QuotaCardProps) {
 
   return (
     <article
-      className={`${styles.card} ${mountEntranceDelayMs === null ? '' : styles.cardEnter}`}
+      className={[
+        styles.card,
+        mountEntranceDelayMs === null ? '' : styles.cardEnter,
+        selected ? styles.cardSelected : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
       style={entranceStyle}
     >
       <header className={styles.head}>
+        <SelectionCheckbox
+          checked={selected}
+          onChange={() => onToggleSelect(file.name)}
+          className={styles.selection}
+          ariaLabel={selected ? t('auth_files.batch_deselect') : t('auth_files.batch_select_all')}
+          title={selected ? t('auth_files.batch_deselect') : t('auth_files.batch_select_all')}
+        />
         <span
           className={styles.iconWrap}
           title={typeLabel}

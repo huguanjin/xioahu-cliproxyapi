@@ -18,12 +18,14 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { useNow } from '@/hooks/useNow';
 import { useRevealGroup } from '@/hooks/motion';
-import { useAuthStore, useQuotaStore, useThemeStore } from '@/stores';
+import { useAuthStore, useNotificationStore, useQuotaStore, useThemeStore } from '@/stores';
 import type { AuthFileItem, ResolvedTheme } from '@/types';
 import { ProviderTabs } from '@/features/authFiles/components/ProviderTabs';
+import { notifyAuthFilesChanged } from '@/features/authFiles/authFilesEvents';
 import { AntigravityQuotaSummary } from './components/AntigravityQuotaSummary';
 import { QuotaHeader } from './components/QuotaHeader';
 import { QuotaCard } from './components/QuotaCard';
+import { QuotaBatchActionBar } from './components/QuotaBatchActionBar';
 import { QuotaTimeline } from './components/QuotaTimeline';
 import {
   CARD_ENTRANCE_BUDGET_MS,
@@ -62,6 +64,7 @@ export function QuotaPage() {
   const { t } = useTranslation();
   const connectionStatus = useAuthStore((state) => state.connectionStatus);
   const resolvedTheme: ResolvedTheme = useThemeStore((state) => state.resolvedTheme);
+  const { showNotification, showConfirmation } = useNotificationStore();
 
   const [files, setFiles] = useState<AuthFileItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,6 +74,7 @@ export function QuotaPage() {
     () => readQuotaUiState()?.sortMode ?? 'default'
   );
   const [page, setPage] = useState(1);
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   // 页头 + tabs 的入场级联（标题 → meta → 动作 → tabs，级差 70ms）
   const revealRef = useRevealGroup<HTMLDivElement>();
 
@@ -200,6 +204,131 @@ export function QuotaPage() {
     });
   }, [entries, loading]);
 
+  /* ---------- 多选 / 批量删除 ---------- */
+
+  // 剪枝：文件列表落定后，选中集合只保留仍存在的凭证名
+  useEffect(() => {
+    if (loading) return;
+    const survivors = new Set(entries.map((entry) => entry.file.name));
+    setSelectedFiles((prev) => {
+      let changed = false;
+      const next = new Set<string>();
+      prev.forEach((name) => {
+        if (survivors.has(name)) {
+          next.add(name);
+        } else {
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [entries, loading]);
+
+  const toggleSelect = useCallback((name: string) => {
+    setSelectedFiles((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) {
+        next.delete(name);
+      } else {
+        next.add(name);
+      }
+      return next;
+    });
+  }, []);
+
+  const selectPage = useCallback(() => {
+    setSelectedFiles((prev) => {
+      const next = new Set(prev);
+      pageItems.forEach((entry) => next.add(entry.file.name));
+      return next;
+    });
+  }, [pageItems]);
+
+  const selectFiltered = useCallback(() => {
+    setSelectedFiles((prev) => {
+      const next = new Set(prev);
+      filteredEntries.forEach((entry) => next.add(entry.file.name));
+      return next;
+    });
+  }, [filteredEntries]);
+
+  const invertPage = useCallback(() => {
+    setSelectedFiles((prev) => {
+      const next = new Set(prev);
+      pageItems.forEach((entry) => {
+        const name = entry.file.name;
+        if (next.has(name)) {
+          next.delete(name);
+        } else {
+          next.add(name);
+        }
+      });
+      return next;
+    });
+  }, [pageItems]);
+
+  const deselectAll = useCallback(() => {
+    setSelectedFiles(new Set());
+  }, []);
+
+  // 一键全选「额度获取失败」的凭证：跨 tab/跨页，与页头「N 个需关注」同一口径，
+  // 只加入 status === 'error' 的凭证，绝不动到正常凭证。
+  const selectFailed = useCallback(() => {
+    setSelectedFiles((prev) => {
+      const next = new Set(prev);
+      entries.forEach((entry) => {
+        if (quotaByType[entry.type][entry.file.name]?.status === 'error') {
+          next.add(entry.file.name);
+        }
+      });
+      return next;
+    });
+  }, [entries, quotaByType]);
+
+  const handleBatchDelete = useCallback(() => {
+    const names = Array.from(selectedFiles);
+    if (names.length === 0) return;
+
+    showConfirmation({
+      title: t('auth_files.batch_delete_title'),
+      message: t('auth_files.batch_delete_confirm', { count: names.length }),
+      variant: 'danger',
+      confirmText: t('common.confirm'),
+      onConfirm: async () => {
+        try {
+          const result = await authFilesApi.deleteFiles(names);
+          const deletedSet = new Set(result.files);
+          setFiles((prev) => prev.filter((file) => !deletedSet.has(file.name)));
+          setSelectedFiles((prev) => {
+            const next = new Set(prev);
+            deletedSet.forEach((name) => next.delete(name));
+            return next;
+          });
+          if (result.deleted > 0) notifyAuthFilesChanged();
+
+          if (result.failed.length === 0) {
+            showNotification(
+              `${t('auth_files.delete_all_success')} (${result.deleted})`,
+              'success'
+            );
+          } else {
+            showNotification(
+              t('auth_files.delete_filtered_partial', {
+                success: result.deleted,
+                failed: result.failed.length,
+                type: t('auth_files.filter_all'),
+              }),
+              'warning'
+            );
+          }
+        } catch (err: unknown) {
+          const errorMessage = err instanceof Error ? err.message : '';
+          showNotification(`${t('notification.delete_failed')}: ${errorMessage}`, 'error');
+        }
+      },
+    });
+  }, [selectedFiles, showConfirmation, showNotification, t]);
+
   /* ---------- 加载与操作 ---------- */
 
   const { batchLoading, loadQuota } = useQuotaBatchLoader();
@@ -259,6 +388,7 @@ export function QuotaPage() {
         refreshing={loading || batchLoading}
         disableControls={disableControls}
         onRefreshAll={handleRefreshAll}
+        onSelectFailed={selectFailed}
       />
 
       <AntigravityQuotaSummary />
@@ -327,9 +457,11 @@ export function QuotaPage() {
                 resolvedTheme={resolvedTheme}
                 canRefresh={canUseActions && !entry.file.disabled}
                 resetting={resettingQuotaName === entry.file.name}
+                selected={selectedFiles.has(entry.file.name)}
                 entranceDelayMs={cardEntranceDelay(index)}
                 onRefresh={() => void refreshQuota(entry.file, QUOTA_ADAPTERS[entry.type])}
                 onReset={() => resetQuota(entry.file, QUOTA_ADAPTERS[entry.type])}
+                onToggleSelect={toggleSelect}
               />
             ))}
           </div>
@@ -371,6 +503,18 @@ export function QuotaPage() {
           resolvedTheme={resolvedTheme}
         />
       </section>
+
+      <QuotaBatchActionBar
+        selectionCount={selectedFiles.size}
+        selectablePageCount={pageItems.length}
+        selectableFilteredCount={filteredEntries.length}
+        disableControls={disableControls}
+        onSelectPage={selectPage}
+        onSelectFiltered={selectFiltered}
+        onInvertPage={invertPage}
+        onDeselectAll={deselectAll}
+        onDelete={handleBatchDelete}
+      />
     </div>
   );
 }

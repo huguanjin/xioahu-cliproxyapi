@@ -29,6 +29,11 @@
   }
 }
 
+.cardSelected {
+  border-color: var(--primary-color);
+  background: color-mix(in srgb, var(--primary-color) 6%, var(--bg-primary) 82%);
+}
+
 /* 首次数据到达时的一次性级联入场；切 tab / 翻页 / 刷新不重播 */
 .cardEnter {
   animation: quota-card-in 0.45s var(--ease-out-strong, ease-out) both;
@@ -49,6 +54,10 @@
   align-items: center;
   gap: 9px;
   min-width: 0;
+}
+
+.selection {
+  flex-shrink: 0;
 }
 
 .iconWrap {
