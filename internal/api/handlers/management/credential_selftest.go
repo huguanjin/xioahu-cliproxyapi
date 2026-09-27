@@ -13,20 +13,28 @@ import (
 // It mirrors the auth package's SelfTestReport but uses snake_case keys and
 // omits the empty failure list so the common all-clear case stays small.
 type credentialSelfTestResponse struct {
-	StartedAt     string                           `json:"started_at"`
-	FinishedAt    string                           `json:"finished_at"`
-	Manual        bool                             `json:"manual"`
-	Concurrency   int                              `json:"concurrency"`
-	Timeout       string                           `json:"timeout"`
-	Probed        int                              `json:"probed"`
-	Skipped       int                              `json:"skipped"`
-	Healthy       int                              `json:"healthy"`
-	Cooling       int                              `json:"cooling"`
-	Deterministic int                              `json:"deterministic"`
-	Escalated     int                              `json:"escalated"`
-	Transient     int                              `json:"transient"`
-	Validation    int                              `json:"validation"`
-	Failures      []credentialSelfTestFailureEntry `json:"failures,omitempty"`
+	StartedAt     string `json:"started_at"`
+	FinishedAt    string `json:"finished_at"`
+	Manual        bool   `json:"manual"`
+	Concurrency   int    `json:"concurrency"`
+	Timeout       string `json:"timeout"`
+	Probed        int    `json:"probed"`
+	Skipped       int    `json:"skipped"`
+	Healthy       int    `json:"healthy"`
+	Cooling       int    `json:"cooling"`
+	Deterministic int    `json:"deterministic"`
+	Escalated     int    `json:"escalated"`
+	Transient     int    `json:"transient"`
+	Validation    int    `json:"validation"`
+	// QuotaExhausted is the share of Cooling that only the deep probe could
+	// find: credentials whose generation quota is spent, which a cheap probe
+	// passes.
+	QuotaExhausted int `json:"quota_exhausted"`
+	// NotProbed counts selected credentials whose provider has no probe to run.
+	// Probed excludes them, so this is what accounts for the difference between
+	// the pool size and Probed + Skipped.
+	NotProbed int                              `json:"not_probed"`
+	Failures  []credentialSelfTestFailureEntry `json:"failures,omitempty"`
 }
 
 type credentialSelfTestFailureEntry struct {
@@ -49,18 +57,20 @@ type credentialSelfTestFailureEntry struct {
 // completed drive the progress bar; the verdict counts fill in behind it so the
 // operator sees dead credentials pile up before the run ends.
 type credentialSelfTestProgress struct {
-	StartedAt     string                           `json:"started_at"`
-	Manual        bool                             `json:"manual"`
-	Concurrency   int                              `json:"concurrency"`
-	Total         int                              `json:"total"`
-	Completed     int                              `json:"completed"`
-	Healthy       int                              `json:"healthy"`
-	Cooling       int                              `json:"cooling"`
-	Deterministic int                              `json:"deterministic"`
-	Escalated     int                              `json:"escalated"`
-	Transient     int                              `json:"transient"`
-	Validation    int                              `json:"validation"`
-	Failures      []credentialSelfTestFailureEntry `json:"failures,omitempty"`
+	StartedAt      string                           `json:"started_at"`
+	Manual         bool                             `json:"manual"`
+	Concurrency    int                              `json:"concurrency"`
+	Total          int                              `json:"total"`
+	Completed      int                              `json:"completed"`
+	Healthy        int                              `json:"healthy"`
+	Cooling        int                              `json:"cooling"`
+	Deterministic  int                              `json:"deterministic"`
+	Escalated      int                              `json:"escalated"`
+	Transient      int                              `json:"transient"`
+	Validation     int                              `json:"validation"`
+	QuotaExhausted int                              `json:"quota_exhausted"`
+	NotProbed      int                              `json:"not_probed"`
+	Failures       []credentialSelfTestFailureEntry `json:"failures,omitempty"`
 }
 
 // GetCredentialSelfTestStatus reports the schedule state, the running options,
@@ -152,38 +162,42 @@ func (h *Handler) ensureSelfTestLoop(ctx context.Context) {
 
 func buildCredentialSelfTestResponse(report *coreauth.SelfTestReport) credentialSelfTestResponse {
 	response := credentialSelfTestResponse{
-		StartedAt:     report.StartedAt.UTC().Format(time.RFC3339),
-		FinishedAt:    report.FinishedAt.UTC().Format(time.RFC3339),
-		Manual:        report.Manual,
-		Concurrency:   report.Concurrency,
-		Timeout:       report.Timeout.String(),
-		Probed:        report.Probed,
-		Skipped:       report.Skipped,
-		Healthy:       report.Verdict.Healthy,
-		Cooling:       report.Verdict.Cooling,
-		Deterministic: report.Verdict.Deterministic,
-		Escalated:     report.Verdict.Escalated,
-		Transient:     report.Verdict.Transient,
-		Validation:    report.Verdict.Validation,
-		Failures:      buildCredentialSelfTestFailures(report.Failures),
+		StartedAt:      report.StartedAt.UTC().Format(time.RFC3339),
+		FinishedAt:     report.FinishedAt.UTC().Format(time.RFC3339),
+		Manual:         report.Manual,
+		Concurrency:    report.Concurrency,
+		Timeout:        report.Timeout.String(),
+		Probed:         report.Probed,
+		Skipped:        report.Skipped,
+		Healthy:        report.Verdict.Healthy,
+		Cooling:        report.Verdict.Cooling,
+		Deterministic:  report.Verdict.Deterministic,
+		Escalated:      report.Verdict.Escalated,
+		Transient:      report.Verdict.Transient,
+		Validation:     report.Verdict.Validation,
+		QuotaExhausted: report.Verdict.QuotaExhausted,
+		NotProbed:      report.Verdict.NotProbed,
+		Failures:       buildCredentialSelfTestFailures(report.Failures),
 	}
 	return response
 }
 
 func buildCredentialSelfTestProgress(progress *coreauth.SelfTestProgress) credentialSelfTestProgress {
 	return credentialSelfTestProgress{
-		StartedAt:     progress.StartedAt.UTC().Format(time.RFC3339),
-		Manual:        progress.Manual,
-		Concurrency:   progress.Concurrency,
-		Total:         progress.Total,
-		Completed:     progress.Completed,
-		Healthy:       progress.Verdict.Healthy,
-		Cooling:       progress.Verdict.Cooling,
-		Deterministic: progress.Verdict.Deterministic,
-		Escalated:     progress.Verdict.Escalated,
-		Transient:     progress.Verdict.Transient,
-		Validation:    progress.Verdict.Validation,
-		Failures:      buildCredentialSelfTestFailures(progress.Failures),
+		StartedAt:      progress.StartedAt.UTC().Format(time.RFC3339),
+		Manual:         progress.Manual,
+		Concurrency:    progress.Concurrency,
+		Total:          progress.Total,
+		Completed:      progress.Completed,
+		Healthy:        progress.Verdict.Healthy,
+		Cooling:        progress.Verdict.Cooling,
+		Deterministic:  progress.Verdict.Deterministic,
+		Escalated:      progress.Verdict.Escalated,
+		Transient:      progress.Verdict.Transient,
+		Validation:     progress.Verdict.Validation,
+		QuotaExhausted: progress.Verdict.QuotaExhausted,
+		NotProbed:      progress.Verdict.NotProbed,
+		Failures:       buildCredentialSelfTestFailures(progress.Failures),
 	}
 }
 

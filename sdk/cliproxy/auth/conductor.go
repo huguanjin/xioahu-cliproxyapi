@@ -47,6 +47,23 @@ type CredentialSelfTester interface {
 	SelfTestCredential(ctx context.Context, auth *Auth) (*CredentialSelfTestResult, error)
 }
 
+// CredentialGenerationSelfTester extends CredentialSelfTester with a probe that
+// makes a real generation call. It is optional: only a provider that can name a
+// cheaply generated model implements it, and the loop falls back to the cheap
+// probe for the rest.
+//
+// It exists because the cheap probe answers a question about authorization,
+// while the dispatcher needs one about capacity. A credential whose generation
+// quota is spent passes the cheap probe and fails every real request, so without
+// this the pool keeps offering credentials that cannot serve.
+type CredentialGenerationSelfTester interface {
+	// SelfTestCredentialGeneration probes one credential with a minimal real
+	// generation call, and reports what the upstream answered. An error means the
+	// probe could not be performed at all, which is not a verdict on the
+	// credential.
+	SelfTestCredentialGeneration(ctx context.Context, auth *Auth, model string) (*CredentialSelfTestResult, error)
+}
+
 // ExecutionSessionCloser allows executors to release per-session runtime resources.
 type ExecutionSessionCloser interface {
 	CloseExecutionSession(sessionID string)

@@ -300,6 +300,8 @@
     "selftest_never_run": "Тест ещё не запускался.",
     "selftest_summary_probed": "Проверено",
     "selftest_summary_skipped": "Пропущено",
+    "selftest_summary_not_probed": "Без проверки",
+    "selftest_summary_quota_exhausted": "Квота исчерпана",
     "selftest_summary_healthy": "Исправны",
     "selftest_summary_cooling": "Охлаждение",
     "selftest_summary_deterministic": "Детерминированные",

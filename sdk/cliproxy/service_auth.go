@@ -382,6 +382,24 @@ func selfTestOptionsFromConfig(cfg *config.Config) coreauth.SelfTestOptions {
 	options.QueryQuotaOnRateLimit = selfTest.QueryQuotaOnRateLimit
 	options.QuotaConcurrency = selfTest.QuotaConcurrency
 	options.DeterministicFailureThreshold = selfTest.DeterministicFailureThreshold
+	// These three are pointers because an absent key and an explicit false/0 are
+	// different answers. The loader seeds the config from DefaultSelfTestConfig
+	// before unmarshalling on the file path, so a nil here means the key was
+	// absent — the option's own default already stands, and only an explicit value
+	// may overwrite it. Assigning unconditionally would let a config payload that
+	// simply omits the key turn auto-disable off.
+	if selfTest.AutoDisableOnThreshold != nil {
+		options.AutoDisableOnThreshold = *selfTest.AutoDisableOnThreshold
+	}
+	if selfTest.DeepProbeEnabled != nil {
+		options.DeepProbeEnabled = *selfTest.DeepProbeEnabled
+	}
+	if selfTest.DeepProbeSamplePercent != nil {
+		options.DeepProbeSamplePercent = *selfTest.DeepProbeSamplePercent
+	}
+	if model := strings.TrimSpace(selfTest.DeepProbeModel); model != "" {
+		options.DeepProbeModel = model
+	}
 	if parsed, errParse := time.ParseDuration(selfTest.Interval); errParse == nil && parsed > 0 {
 		options.Interval = parsed
 	}
@@ -396,6 +414,12 @@ func selfTestOptionsFromConfig(cfg *config.Config) coreauth.SelfTestOptions {
 	}
 	if parsed, errParse := time.ParseDuration(selfTest.MaxCooldown); errParse == nil && parsed > 0 {
 		options.MaxCooldown = parsed
+	}
+	if parsed, errParse := time.ParseDuration(selfTest.QuarantineProbePeriod); errParse == nil && parsed > 0 {
+		options.QuarantineProbePeriod = parsed
+	}
+	if parsed, errParse := time.ParseDuration(selfTest.ValidationProbePeriod); errParse == nil && parsed > 0 {
+		options.ValidationProbePeriod = parsed
 	}
 	return options.Normalize()
 }

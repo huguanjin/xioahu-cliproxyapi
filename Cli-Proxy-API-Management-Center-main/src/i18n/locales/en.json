@@ -301,6 +301,8 @@
     "selftest_never_run": "No test has run yet.",
     "selftest_summary_probed": "Probed",
     "selftest_summary_skipped": "Skipped",
+    "selftest_summary_not_probed": "Not probed",
+    "selftest_summary_quota_exhausted": "Quota spent",
     "selftest_summary_healthy": "Healthy",
     "selftest_summary_cooling": "Cooling",
     "selftest_summary_deterministic": "Deterministic",

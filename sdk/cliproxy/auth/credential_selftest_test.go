@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
@@ -149,38 +150,89 @@ func TestApplyCredentialSelfTestIgnoresMissingStatus(t *testing.T) {
 	}
 }
 
-// Probing a credential that is already parked invites only a duplicate
-// rejection, and a disabled credential is out of rotation by operator intent.
-func TestCredentialSelfTestEligible(t *testing.T) {
+// A credential is skipped only when it is out of the loop's reach. Cooling and
+// unavailable credentials stay due on their own cadence: the previous rule that
+// skipped them meant the loop's own cooldown removed a credential from the only
+// set that could ever clear it.
+func TestCredentialSelfTestDue(t *testing.T) {
 	future := time.Now().Add(time.Hour)
+	past := time.Now().Add(-time.Minute)
 	cases := []struct {
 		name string
 		auth *Auth
 		want bool
 	}{
-		{name: "healthy", auth: &Auth{ID: "a", Provider: "antigravity"}, want: true},
+		{name: "never probed", auth: &Auth{ID: "a", Provider: "antigravity"}, want: true},
 		{name: "nil", auth: nil, want: false},
 		{name: "no id", auth: &Auth{Provider: "antigravity"}, want: false},
-		{name: "disabled", auth: &Auth{ID: "a", Disabled: true}, want: false},
-		{name: "unavailable", auth: &Auth{ID: "a", Unavailable: true}, want: false},
-		{name: "quota exceeded", auth: &Auth{ID: "a", Quota: QuotaState{Exceeded: true}}, want: false},
-		{name: "retry pending", auth: &Auth{ID: "a", NextRetryAfter: future}, want: false},
-		{name: "recover pending", auth: &Auth{ID: "a", Quota: QuotaState{NextRecoverAt: future}}, want: false},
+		{name: "operator disabled", auth: &Auth{ID: "a", Disabled: true}, want: false},
 		{
-			name: "window expired",
-			auth: &Auth{ID: "a", NextRetryAfter: time.Now().Add(-time.Minute), Quota: QuotaState{NextRecoverAt: time.Now().Add(-time.Minute)}},
+			name: "auto disabled stays due",
+			auth: &Auth{ID: "a", Disabled: true, Metadata: map[string]any{
+				"self_test": map[string]any{"auto_disabled": true},
+			}},
+			want: true,
+		},
+		// A credential the dispatcher is skipping still gets re-probed; that is
+		// the whole point of keeping it in the queue.
+		{name: "unavailable", auth: &Auth{ID: "a", Unavailable: true}, want: true},
+		{name: "quota exceeded", auth: &Auth{ID: "a", Quota: QuotaState{Exceeded: true}}, want: true},
+		{name: "retry pending", auth: &Auth{ID: "a", NextRetryAfter: future}, want: true},
+		{
+			name: "not due yet",
+			auth: &Auth{ID: "a", Metadata: map[string]any{
+				"self_test": map[string]any{"next_probe_at": future.UTC().Format(time.RFC3339)},
+			}},
+			want: false,
+		},
+		{
+			name: "due again",
+			auth: &Auth{ID: "a", Metadata: map[string]any{
+				"self_test": map[string]any{"next_probe_at": past.UTC().Format(time.RFC3339)},
+			}},
+			want: true,
+		},
+		{
+			// A hand-edited or corrupt timestamp must not pin a credential to a
+			// future cadence forever.
+			name: "corrupt timestamp reads as due",
+			auth: &Auth{ID: "a", Metadata: map[string]any{
+				"self_test": map[string]any{"next_probe_at": "not-a-time"},
+			}},
 			want: true,
 		},
 	}
 	for _, tc := range cases {
-		if got := selfTestEligible(tc.auth); got != tc.want {
-			t.Errorf("%s: expected eligible=%v, got %v", tc.name, tc.want, got)
+		if got := selfTestDue(tc.auth, time.Now(), true); got != tc.want {
+			t.Errorf("%s: expected due=%v, got %v", tc.name, tc.want, got)
 		}
 	}
 }
 
-// The loop must not re-probe the same credential on every tick; the per-
-// credential period is what keeps the probe from becoming upstream load.
+// A manual run asks what is true now, so it must not hand back the schedule's
+// own answer: a credential the last scheduled sweep pushed an hour out is still
+// probed when an operator presses the button.
+func TestCredentialSelfTestDueIgnoresCadenceOnManualRun(t *testing.T) {
+	parked := &Auth{ID: "a", Metadata: map[string]any{
+		"self_test": map[string]any{"next_probe_at": time.Now().Add(time.Hour).UTC().Format(time.RFC3339)},
+	}}
+	if selfTestDue(parked, time.Now(), true) {
+		t.Fatalf("a parked credential must not be due on a scheduled sweep")
+	}
+	if !selfTestDue(parked, time.Now(), false) {
+		t.Fatalf("a manual run must probe a parked credential anyway")
+	}
+
+	// The reachability rules still apply: a manual run does not resurrect a
+	// credential an operator disabled by hand.
+	operatorDisabled := &Auth{ID: "b", Disabled: true}
+	if selfTestDue(operatorDisabled, time.Now(), false) {
+		t.Fatalf("a manual run must still skip an operator-disabled credential")
+	}
+}
+
+// The cadence lives on the credential, so the loop must not re-probe within the
+// period even though nothing is tracked in memory any more.
 func TestCredentialSelfTestLoopCandidatesRespectPeriod(t *testing.T) {
 	manager := NewManager(nil, nil, nil)
 	for _, id := range []string{"a", "b"} {
@@ -200,7 +252,6 @@ func TestCredentialSelfTestLoopCandidatesRespectPeriod(t *testing.T) {
 			Timeout:             time.Second,
 			Concurrency:         2,
 		},
-		lastProbed: make(map[string]time.Time),
 	}
 
 	first, skipped := loop.candidates(time.Now(), true)
@@ -237,12 +288,11 @@ func TestCredentialSelfTestLoopCandidatesBypassesPeriodOnManualRun(t *testing.T)
 			Timeout:             time.Second,
 			Concurrency:         2,
 		},
-		lastProbed: make(map[string]time.Time, 0),
 	}
-	now := time.Now()
-	loop.lastProbed["a"] = now
+	// Give the credential a cadence far in the future; a manual run must ignore it.
+	loop.candidates(time.Now(), true)
 
-	due, skipped := loop.candidates(now, false)
+	due, skipped := loop.candidates(time.Now(), false)
 	if len(due) != 1 {
 		t.Fatalf("expected the period to be ignored on a manual run, got %d due (skipped %d)", len(due), skipped)
 	}
@@ -257,6 +307,80 @@ func TestCredentialSelfTesterRequiresImplementingExecutor(t *testing.T) {
 	}
 	if _, ok := manager.credentialSelfTester("missing"); ok {
 		t.Fatalf("an unknown provider must not be treated as a probe target")
+	}
+}
+
+// The deep-probe sample must be stable, not random. A random draw re-picks the
+// same credential twice in a row as often as not, which would leave part of the
+// pool untouched for long stretches while the rest is deep probed repeatedly.
+// Stability is what lets the sample cover the pool over successive sweeps.
+func TestDeepProbeSampledIsStable(t *testing.T) {
+	loop := &credentialSelfTestLoop{}
+	sampled := make(map[string]bool)
+	for _, id := range []string{"a", "b", "c", "alpha", "beta", "gamma", "credential-0001", "credential-0002"} {
+		first := loop.deepProbeSampled(id, 50)
+		for i := 0; i < 8; i++ {
+			if again := loop.deepProbeSampled(id, 50); again != first {
+				t.Fatalf("%s changed its sample verdict between calls: %v then %v", id, first, again)
+			}
+		}
+		sampled[id] = first
+	}
+	// A 50% sample that picked everything or nothing would be a broken hash rather
+	// than a sample; with eight ids the odds of either extreme are negligible.
+	selected := 0
+	for _, ok := range sampled {
+		if ok {
+			selected++
+		}
+	}
+	if selected == 0 || selected == len(sampled) {
+		t.Fatalf("50%% sample selected %d of %d ids, which is not a sample", selected, len(sampled))
+	}
+}
+
+// The boundaries are what an operator configures against: 0 must mean "never
+// deep probe" and 100 must mean "always", and neither may fall through the hash.
+func TestDeepProbeSampledBoundaries(t *testing.T) {
+	loop := &credentialSelfTestLoop{}
+	if loop.deepProbeSampled("a", 0) {
+		t.Fatalf("a 0%% sample must select nothing")
+	}
+	if !loop.deepProbeSampled("a", 100) {
+		t.Fatalf("a 100%% sample must select everything")
+	}
+	if loop.deepProbeSampled("a", -1) {
+		t.Fatalf("a negative sample must select nothing")
+	}
+	// An empty id must not be sampled: it cannot be hashed meaningfully, and the
+	// stable-selection property does not hold for it.
+	if loop.deepProbeSampled("  ", 100) {
+		t.Fatalf("an empty credential id must not be sampled")
+	}
+}
+
+// Roughly the configured share of a pool must be selected, so a small percentage
+// is a real throttle rather than an accidental full sweep. The hash is stable, so
+// this is a deterministic assertion about the ids, not a statistical one.
+func TestDeepProbeSampledApproximatesConfiguredShare(t *testing.T) {
+	loop := &credentialSelfTestLoop{}
+	ids := make([]string, 0, 1000)
+	for i := 0; i < 1000; i++ {
+		ids = append(ids, "credential-"+strconv.Itoa(i))
+	}
+	for _, percent := range []int{2, 10, 50} {
+		selected := 0
+		for _, id := range ids {
+			if loop.deepProbeSampled(id, percent) {
+				selected++
+			}
+		}
+		// FNV-1a mod 100 over 1000 ids should land within a few points of the
+		// target. A wide band keeps the test about gross correctness, not about
+		// pinning a hash that may be legitimately replaced.
+		if selected < percent*5 || selected > percent*15 {
+			t.Fatalf("%d%% selected %d of %d ids, want roughly %d", percent, selected, len(ids), percent*10)
+		}
 	}
 }
 

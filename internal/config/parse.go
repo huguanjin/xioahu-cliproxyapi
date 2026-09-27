@@ -37,6 +37,12 @@ func ParseConfigBytes(data []byte) (*Config, error) {
 	cfg.Pprof.Addr = DefaultPprofAddr
 	cfg.RemoteManagement.PanelGitHubRepository = DefaultPanelGitHubRepository
 	cfg.CredentialInFlight = DefaultCredentialInFlightConfig()
+	// Seeded before unmarshal so absent keys keep their defaults, exactly as
+	// LoadConfigOptional does. Without it a payload that omits the self-test block
+	// reads every field as its zero value, which for the boolean options means the
+	// opposite of the default: query-quota-on-rate-limit and the pointer fields
+	// would all come back false/off.
+	cfg.SelfTest = DefaultSelfTestConfig()
 
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parse config payload: %w", err)
@@ -44,6 +50,10 @@ func ParseConfigBytes(data []byte) (*Config, error) {
 
 	cfg.CredentialConcurrency = cfg.CredentialConcurrency.WithDefaults()
 	if errValidate := cfg.CredentialInFlight.Validate(); errValidate != nil {
+		return nil, errValidate
+	}
+	cfg.SelfTest = cfg.SelfTest.Effective()
+	if errValidate := cfg.SelfTest.Validate(); errValidate != nil {
 		return nil, errValidate
 	}
 	if errValidate := cfg.ValidateCredentialWeights(); errValidate != nil {

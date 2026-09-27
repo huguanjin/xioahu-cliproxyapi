@@ -301,6 +301,8 @@
     "selftest_never_run": "尚未執行過測試。",
     "selftest_summary_probed": "已測試",
     "selftest_summary_skipped": "已跳過",
+    "selftest_summary_not_probed": "無法探測",
+    "selftest_summary_quota_exhausted": "配額耗盡",
     "selftest_summary_healthy": "健康",
     "selftest_summary_cooling": "冷卻中",
     "selftest_summary_deterministic": "確定性失敗",

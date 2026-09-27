@@ -102,6 +102,13 @@ export type SelfTestReport = {
   escalated: number;
   transient: number;
   validation: number;
+  /** Deep-probe finding: credentials whose generation quota is spent. A subset of
+   *  cooling, not a sibling — a cheap probe cannot see this, so it is the share of
+   *  cooldowns only the deep probe caught. */
+  quota_exhausted: number;
+  /** Selected credentials whose provider has no probe endpoint. Excluded from
+   *  probed, so this is what accounts for pool size minus probed plus skipped. */
+  not_probed: number;
   failures?: SelfTestFailureEntry[];
 };
 
@@ -120,6 +127,10 @@ export type SelfTestProgress = {
   escalated: number;
   transient: number;
   validation: number;
+  /** 深探发现的配额耗尽数，是 cooling 的子集。 */
+  quota_exhausted: number;
+  /** 所选凭证中 provider 没有探测端点的数量。 */
+  not_probed: number;
   /** 进行中已标记的失败（后端上限 200 条）。 */
   failures?: SelfTestFailureEntry[];
 };

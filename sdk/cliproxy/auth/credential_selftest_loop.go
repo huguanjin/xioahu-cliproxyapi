@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"hash/fnv"
 	"net/http"
 	"strings"
 	"sync"
@@ -13,9 +14,9 @@ import (
 )
 
 // credentialSelfTestLoop walks the credential pool on a timer and probes what it
-// finds. It owns two pieces of runtime state that are deliberately not persisted:
-// when each credential was last probed, and the outcome of the most recent run.
-// A restart simply re-probes everything, which is the safe direction.
+// finds. Only the most recent run is held in memory; how far each credential has
+// backed off lives on the credential itself, so a restart resumes every cadence
+// instead of re-probing the whole pool at once.
 type credentialSelfTestLoop struct {
 	manager *Manager
 	options SelfTestOptions
@@ -30,7 +31,6 @@ type credentialSelfTestLoop struct {
 	scheduleEnabled bool
 
 	mu         sync.Mutex
-	lastProbed map[string]time.Time
 	lastReport *SelfTestReport
 	// running guards against overlapping manual runs; a second trigger while one
 	// run is in flight is refused rather than queued.
@@ -93,8 +93,14 @@ type SelfTestReport struct {
 }
 
 // SelfTestVerdictCounts tallies a run's conclusions.
+//
+// Every counter is incremented where the verdict is decided, including Healthy.
+// Deriving Healthy by subtracting the other counters from the probe total meant
+// any credential whose outcome the tally did not recognise was silently reported
+// as healthy — the most dangerous direction for the number an operator reads to
+// decide whether the pool is fine.
 type SelfTestVerdictCounts struct {
-	// Healthy credentials answered 2xx.
+	// Healthy credentials answered 2xx to the probe that was actually run.
 	Healthy int
 	// Cooling credentials are now parked in cooldown by this run.
 	Cooling int
@@ -111,6 +117,15 @@ type SelfTestVerdictCounts struct {
 	// verification. They are neither healthy nor dead, and the run leaves their
 	// scheduling state untouched.
 	Validation int
+	// QuotaExhausted counts credentials the deep probe found with a spent
+	// generation quota. They are also counted in Cooling, so this is a subset
+	// rather than a sibling: it is the share of cooldowns that a cheap probe
+	// would have missed.
+	QuotaExhausted int
+	// NotProbed counts credentials the run selected but could not probe at all,
+	// because their provider has no credential-check endpoint. They were counted
+	// as probed before, which made the total overstate what the run learned.
+	NotProbed int
 }
 
 // SelfTestFailure describes one credential a run flagged.
@@ -134,6 +149,16 @@ type SelfTestFailure struct {
 	ForbiddenType string
 	// ValidationURL is the verification link that came with a validation 403.
 	ValidationURL string
+	// Tier is which probe produced this failure. The run reports the share of
+	// rejections that only the deep probe could see, so the tier has to survive
+	// into the report.
+	Tier CredentialSelfTestTier
+}
+
+// quotaExhausted reports whether this failure is a spent generation quota: the
+// deep probe's own question, and one no cheap probe can answer.
+func (f SelfTestFailure) quotaExhausted() bool {
+	return f.Tier == SelfTestTierGeneration && f.StatusCode == http.StatusTooManyRequests
 }
 
 // SelfTestFailureKind classifies why a probe failed.
@@ -183,7 +208,6 @@ func (m *Manager) StartCredentialSelfTest(parent context.Context, options SelfTe
 		options:         options,
 		ctx:             ctx,
 		scheduleEnabled: options.Enabled,
-		lastProbed:      make(map[string]time.Time),
 	}
 	m.mu.Lock()
 	m.selfTestCancel = cancelCtx
@@ -430,6 +454,11 @@ func (l *credentialSelfTestLoop) runOnce(ctx context.Context, manual bool, markP
 	semaphore := make(chan struct{}, limit)
 	var waitGroup sync.WaitGroup
 	var launched atomic.Int64
+	// Healthy and NotProbed are counted as probes land rather than derived at the
+	// end, so an outcome the tally does not recognise can never be reported as a
+	// healthy credential.
+	var healthy atomic.Int64
+	var notProbed atomic.Int64
 	for _, auth := range candidates {
 		if ctx.Err() != nil {
 			break
@@ -440,28 +469,34 @@ func (l *credentialSelfTestLoop) runOnce(ctx context.Context, manual bool, markP
 		go func(auth *Auth) {
 			defer waitGroup.Done()
 			defer func() { <-semaphore }()
-			failure, counted := l.probeOne(ctx, auth)
-			if counted {
+			failure, outcome := l.probeOne(ctx, auth)
+			switch outcome {
+			case selfTestOutcomeFailed:
 				results <- failure
-				l.noteProgress(auth, failure)
-				return
+			case selfTestOutcomeNotProbed:
+				notProbed.Add(1)
+			default:
+				healthy.Add(1)
 			}
-			// A probe that reports nothing is still a completed probe, so the
-			// progress view has to count it or the bar stalls below 100%.
-			l.noteProgress(auth, SelfTestFailure{})
+			l.noteProgress(auth, failure, outcome)
 		}(auth)
 	}
 	waitGroup.Wait()
 	close(results)
 
-	// Every launched probe either reports a failure or came back clean, so the
-	// launched count is the denominator and the failures are subtracted from it.
+	// Every launched probe is accounted for below: each one either failed, came
+	// back clean, or could not be run. The three counters are incremented where
+	// the outcome is decided, so their sum is the launched count and no
+	// unclassified outcome can hide inside Healthy.
 	report.Probed = int(launched.Load())
 	for failure := range results {
 		switch failure.Kind {
 		case SelfTestFailureDeterministic:
 			report.Verdict.Deterministic++
 			report.Verdict.Cooling++
+			if failure.quotaExhausted() {
+				report.Verdict.QuotaExhausted++
+			}
 			if failure.Strikes >= l.options.DeterministicFailureThreshold {
 				report.Verdict.Escalated++
 			}
@@ -474,11 +509,8 @@ func (l *credentialSelfTestLoop) runOnce(ctx context.Context, manual bool, markP
 		}
 		report.Failures = append(report.Failures, failure)
 	}
-	report.Verdict.Healthy = report.Probed - report.Verdict.Deterministic -
-		report.Verdict.Transient - report.Verdict.Validation
-	if report.Verdict.Healthy < 0 {
-		report.Verdict.Healthy = 0
-	}
+	report.Verdict.Healthy = int(healthy.Load())
+	report.Verdict.NotProbed = int(notProbed.Load())
 	report.FinishedAt = time.Now()
 	l.finishProgress(report)
 
@@ -486,9 +518,10 @@ func (l *credentialSelfTestLoop) runOnce(ctx context.Context, manual bool, markP
 	l.lastReport = report
 	l.mu.Unlock()
 
-	log.Infof("credential self-test: run complete manual=%v probed=%d skipped=%d healthy=%d cooling=%d deterministic=%d escalated=%d validation=%d transient=%d in %s",
+	log.Infof("credential self-test: run complete manual=%v probed=%d skipped=%d healthy=%d cooling=%d deterministic=%d escalated=%d validation=%d transient=%d quota_exhausted=%d not_probed=%d in %s",
 		manual, report.Probed, report.Skipped, report.Verdict.Healthy, report.Verdict.Cooling,
 		report.Verdict.Deterministic, report.Verdict.Escalated, report.Verdict.Validation, report.Verdict.Transient,
+		report.Verdict.QuotaExhausted, report.Verdict.NotProbed,
 		report.FinishedAt.Sub(report.StartedAt).Round(time.Millisecond))
 	return report
 }
@@ -510,11 +543,10 @@ func (l *credentialSelfTestLoop) finishProgress(report *SelfTestReport) {
 	l.progress.Verdict = report.Verdict
 }
 
-// noteProgress folds one landed probe into the live progress view. A zero
-// failure means the probe came back clean and only counts toward the completed
-// total; anything else is tallied the same way the finished report tallies it, so
-// the running numbers and the final report agree.
-func (l *credentialSelfTestLoop) noteProgress(auth *Auth, failure SelfTestFailure) {
+// noteProgress folds one landed probe into the live progress view, tallied the
+// same way the finished report tallies it so the running numbers and the final
+// report agree.
+func (l *credentialSelfTestLoop) noteProgress(auth *Auth, failure SelfTestFailure, outcome selfTestOutcome) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	progress := l.progress
@@ -523,16 +555,21 @@ func (l *credentialSelfTestLoop) noteProgress(auth *Auth, failure SelfTestFailur
 		return
 	}
 	progress.Completed++
-	switch failure.Kind {
-	case SelfTestFailureDeterministic:
+	switch {
+	case outcome == selfTestOutcomeNotProbed:
+		progress.Verdict.NotProbed++
+	case failure.Kind == SelfTestFailureDeterministic:
 		progress.Verdict.Deterministic++
 		progress.Verdict.Cooling++
+		if failure.quotaExhausted() {
+			progress.Verdict.QuotaExhausted++
+		}
 		if failure.Strikes >= l.options.DeterministicFailureThreshold {
 			progress.Verdict.Escalated++
 		}
-	case SelfTestFailureValidation:
+	case failure.Kind == SelfTestFailureValidation:
 		progress.Verdict.Validation++
-	case SelfTestFailureTransient:
+	case failure.Kind == SelfTestFailureTransient:
 		progress.Verdict.Transient++
 	default:
 		progress.Verdict.Healthy++
@@ -550,9 +587,17 @@ func (l *credentialSelfTestLoop) noteProgress(auth *Auth, failure SelfTestFailur
 }
 
 // candidates returns the credentials to probe and the number passed over.
-// markProbed records the attempt even for a probe that never reports, so a probe
-// that hangs still respects the period; a manual run skips it so a scheduled run
-// is not starved by an operator pressing the button repeatedly.
+//
+// Due-ness comes from each credential's persisted next_probe_at rather than from
+// an in-memory map, so a restart resumes the cadence every credential had earned
+// instead of re-probing the whole pool at once. A credential whose next_probe_at
+// is unset has never been probed and is due immediately, which is what lets a
+// freshly imported pool be checked in one pass.
+//
+// markProbed stamps next_probe_at here, before the probe runs, so a probe that
+// hangs still costs the credential its turn; the probe's own outcome overwrites
+// the stamp with the cadence it earned. A manual run skips the stamp so an
+// operator pressing the button does not starve the schedule of its next pass.
 func (l *credentialSelfTestLoop) candidates(now time.Time, markProbed bool) ([]*Auth, int) {
 	l.manager.mu.RLock()
 	list := make([]*Auth, 0, len(l.manager.auths))
@@ -561,62 +606,103 @@ func (l *credentialSelfTestLoop) candidates(now time.Time, markProbed bool) ([]*
 	}
 	l.manager.mu.RUnlock()
 
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	due := make([]*Auth, 0, len(list))
 	skipped := 0
 	for _, auth := range list {
-		if !selfTestEligible(auth) {
+		if !selfTestDue(auth, now, markProbed) {
 			skipped++
 			continue
 		}
-		if markProbed {
-			authID := strings.TrimSpace(auth.ID)
-			if last, ok := l.lastProbed[authID]; ok && now.Sub(last) < l.options.PerCredentialPeriod {
-				skipped++
-				continue
-			}
-			l.lastProbed[authID] = now
-		}
 		due = append(due, auth)
+	}
+	if markProbed {
+		l.stampProbed(due, now)
 	}
 	return due, skipped
 }
 
-// selfTestEligible reports whether a credential is worth probing. Disabled
-// credentials are out of rotation by operator intent, and a credential already
-// serving a cooldown needs no second opinion: the scheduler is already skipping
-// it, and the probe would only rediscover the same rejection.
-func selfTestEligible(auth *Auth) bool {
-	if auth == nil || auth.Disabled {
-		return false
+// stampProbed advances next_probe_at for the credentials this sweep is about to
+// probe, so a probe that hangs still costs its credential a turn.
+//
+// The stamp only ever moves a credential's next probe later, and only if the
+// credential is still due: a probe from the previous sweep may have written the
+// cadence it earned in the meantime, and that answer must not be overwritten with
+// a placeholder. That is why the check is re-run under the lock rather than
+// trusting the cloned snapshot.
+func (l *credentialSelfTestLoop) stampProbed(candidates []*Auth, now time.Time) {
+	if len(candidates) == 0 || l.manager == nil {
+		return
 	}
-	if strings.TrimSpace(auth.ID) == "" {
-		return false
+	l.manager.mu.Lock()
+	for _, candidate := range candidates {
+		auth, ok := l.manager.auths[candidate.ID]
+		if !ok || auth == nil {
+			continue
+		}
+		state := auth.SelfTestState()
+		state.NextProbeAt = now.Add(l.options.PerCredentialPeriod)
+		auth.SetSelfTestState(state)
+		_ = l.manager.persist(context.Background(), auth)
 	}
-	if auth.Unavailable || auth.Quota.Exceeded {
-		return false
-	}
-	now := time.Now()
-	if !auth.NextRetryAfter.IsZero() && auth.NextRetryAfter.After(now) {
-		return false
-	}
-	if !auth.Quota.NextRecoverAt.IsZero() && auth.Quota.NextRecoverAt.After(now) {
-		return false
-	}
-	return true
+	l.manager.mu.Unlock()
 }
 
-// probeOne probes a single credential. The bool reports whether the outcome is a
-// failure worth putting in the run's report; a healthy credential and one whose
-// provider has no probe both return false.
-func (l *credentialSelfTestLoop) probeOne(parent context.Context, auth *Auth) (SelfTestFailure, bool) {
+// selfTestDue reports whether a credential should be probed in this sweep.
+//
+// The rule that matters here is that a credential is skipped only when it is out
+// of the loop's reach, not when it is currently failing. Previously an
+// unavailable or cooling credential was skipped, which meant a credential the
+// loop itself had cooled down was never examined again: the failures that
+// triggered the cooldown also removed the credential from the set that could ever
+// clear it. A credential parked by the schedule keeps its place in the queue, on
+// the slower cadence its verdict earned.
+//
+// The remaining skip reason is an operator disabling a credential: the loop does
+// not second-guess that, and probing it would only burn a request to confirm an
+// intentional state. An auto-disabled credential is the exception, because the
+// loop is the one that parked it and the loop is the only thing that can lift it.
+//
+// respectCadence is false for a manual run: an operator pressing the button is
+// asking what is true right now, and honouring a stored cadence would hand back a
+// report that mostly restates the last scheduled sweep.
+func selfTestDue(auth *Auth, now time.Time, respectCadence bool) bool {
+	if auth == nil || strings.TrimSpace(auth.ID) == "" {
+		return false
+	}
+	state := auth.SelfTestState()
+	if auth.Disabled && !state.AutoDisabled {
+		return false
+	}
+	if !respectCadence || state.NextProbeAt.IsZero() {
+		return true
+	}
+	return !state.NextProbeAt.After(now)
+}
+
+// selfTestOutcome is what a single probe produced, kept distinct from the failure
+// it may carry. The run's tallies need to tell three cases apart that a single
+// "did it fail" bool conflates: a credential that answered cleanly, one that was
+// rejected, and one the run could not probe at all.
+type selfTestOutcome int
+
+const (
+	// selfTestOutcomeProbed means the upstream answered and the credential passed.
+	selfTestOutcomeProbed selfTestOutcome = iota
+	// selfTestOutcomeFailed means the run recorded a failure against the credential.
+	selfTestOutcomeFailed
+	// selfTestOutcomeNotProbed means the provider has no probe to run, so the run
+	// learned nothing about this credential.
+	selfTestOutcomeNotProbed
+)
+
+// probeOne probes a single credential and reports what the run learned.
+func (l *credentialSelfTestLoop) probeOne(parent context.Context, auth *Auth) (SelfTestFailure, selfTestOutcome) {
 	provider := strings.TrimSpace(auth.Provider)
 	tester, ok := l.manager.credentialSelfTester(provider)
 	if !ok {
 		// Not every provider has a credential-check endpoint that is safe to call
 		// on a timer; skip it rather than guessing at a probe.
-		return SelfTestFailure{}, false
+		return SelfTestFailure{}, selfTestOutcomeNotProbed
 	}
 	ctx, cancel := context.WithTimeout(parent, l.options.Timeout)
 	defer cancel()
@@ -630,19 +716,25 @@ func (l *credentialSelfTestLoop) probeOne(parent context.Context, auth *Auth) (S
 		// the deterministic failure the escalation threshold exists for. Routing
 		// it through ApplyCredentialSelfTest lets the shared classifier decide.
 		if status, ok := selfTestErrorStatus(errProbe); ok {
-			return l.manager.ApplyCredentialSelfTest(parent, CredentialSelfTestResult{
+			failure := l.applyProbeResult(parent, CredentialSelfTestResult{
 				AuthID:     auth.ID,
 				Provider:   provider,
 				StatusCode: status,
 				Message:    errProbe.Error(),
 				ProbeError: true,
-			}), true
+			})
+			if failure.AuthID != "" {
+				return failure, selfTestOutcomeFailed
+			}
+			return SelfTestFailure{}, selfTestOutcomeProbed
 		}
 		log.Debugf("credential self-test: probe %s %s failed to run: %v", provider, auth.ID, errProbe)
-		return l.recordTransient(auth, errProbe.Error()), true
+		return l.recordTransient(auth, errProbe.Error()), selfTestOutcomeFailed
 	}
 	if result == nil {
-		return SelfTestFailure{}, false
+		// The executor declined to answer without an error; that is a probe that
+		// did not happen, not a credential that passed.
+		return SelfTestFailure{}, selfTestOutcomeNotProbed
 	}
 	if strings.TrimSpace(result.AuthID) == "" {
 		result.AuthID = auth.ID
@@ -650,7 +742,109 @@ func (l *credentialSelfTestLoop) probeOne(parent context.Context, auth *Auth) (S
 	if strings.TrimSpace(result.Provider) == "" {
 		result.Provider = provider
 	}
-	return l.manager.ApplyCredentialSelfTest(parent, *result), true
+	// The cheap probe only speaks for authorization. If it accepted the
+	// credential and this provider can make a real call, follow up with the deep
+	// probe on the credentials that need it, so a spent quota is found here rather
+	// than by a user request.
+	if result.StatusCode >= http.StatusOK && result.StatusCode < http.StatusMultipleChoices {
+		if deep, ok := l.deepProbe(ctx, tester, auth); ok {
+			deep.AuthID = result.AuthID
+			deep.Provider = result.Provider
+			failure := l.applyProbeResult(parent, deep)
+			if failure.AuthID != "" {
+				return failure, selfTestOutcomeFailed
+			}
+			return SelfTestFailure{}, selfTestOutcomeProbed
+		}
+	}
+	failure := l.applyProbeResult(parent, *result)
+	if failure.AuthID != "" {
+		return failure, selfTestOutcomeFailed
+	}
+	return SelfTestFailure{}, selfTestOutcomeProbed
+}
+
+// applyProbeResult folds one probe result into scheduling state and stamps the
+// tier onto the failure it returns, so the report can tell a rejection only the
+// deep probe could see from one the cheap probe would have caught anyway.
+func (l *credentialSelfTestLoop) applyProbeResult(ctx context.Context, result CredentialSelfTestResult) SelfTestFailure {
+	failure := l.manager.ApplyCredentialSelfTest(ctx, result)
+	if failure.AuthID == "" {
+		return failure
+	}
+	tier := result.Tier
+	if tier == 0 {
+		tier = SelfTestTierAuthorization
+	}
+	failure.Tier = tier
+	return failure
+}
+
+// deepProbe runs the generation-level probe when the credential needs one, and
+// reports whether it produced a result. It is a no-op when the option is off, when
+// the provider cannot make a real call, or when this credential was not selected
+// for a deep probe this sweep.
+//
+// Selection has two parts, and the second is what keeps the pool honest:
+//
+//   - Every credential the loop had parked — cooling or quarantined — is deep
+//     probed on its way back. Those are the ones whose cheap probe just passed
+//     while their quota is the thing actually in doubt, so a cheap pass alone
+//     would return a spent credential to rotation.
+//   - Of the rest, a configured percentage is sampled, so a credential whose
+//     quota runs out between recoveries is still found without paying for a real
+//     generation call on every healthy credential every sweep.
+func (l *credentialSelfTestLoop) deepProbe(ctx context.Context, tester CredentialSelfTester, auth *Auth) (CredentialSelfTestResult, bool) {
+	options := l.options
+	generator, ok := tester.(CredentialGenerationSelfTester)
+	if !ok || !options.DeepProbeEnabled {
+		return CredentialSelfTestResult{}, false
+	}
+	state := auth.SelfTestState()
+	returning := state.Strikes > 0 || state.Verdict == SelfTestVerdictCooling || state.Verdict == SelfTestVerdictQuarantine
+	if !returning && !l.deepProbeSampled(auth.ID, options.DeepProbeSamplePercent) {
+		return CredentialSelfTestResult{}, false
+	}
+	result, errProbe := generator.SelfTestCredentialGeneration(ctx, auth, options.DeepProbeModel)
+	if errProbe != nil {
+		// A deep probe that could not run is our problem, not the credential's.
+		// The cheap probe already accepted it, so it keeps that verdict rather than
+		// being cooled down over a probe failure.
+		log.Debugf("credential self-test: deep probe of %s %s failed to run: %v", auth.Provider, auth.ID, errProbe)
+		return CredentialSelfTestResult{}, false
+	}
+	if result == nil {
+		return CredentialSelfTestResult{}, false
+	}
+	return *result, true
+}
+
+// deepProbeSampled decides whether a credential is in this sweep's deep-probe
+// sample. Selection is a stable hash of the credential id rather than a random
+// draw, so the same credentials are picked each sweep: a stable sample spreads
+// the deep probe across the pool over successive sweeps, while a random draw
+// would re-pick the same credential twice in a row as often as not and leave
+// others untouched for long stretches.
+func (l *credentialSelfTestLoop) deepProbeSampled(authID string, percent int) bool {
+	if percent <= 0 {
+		return false
+	}
+	// The empty-id check comes before the 100% shortcut so the rule holds at every
+	// percentage: a credential that cannot be identified is never selected. The
+	// loop filters empty ids out before this is reached, so this is defence in
+	// depth rather than a live path.
+	authID = strings.TrimSpace(authID)
+	if authID == "" {
+		return false
+	}
+	if percent >= 100 {
+		return true
+	}
+	hash := fnv.New32a()
+	if _, errWrite := hash.Write([]byte(authID)); errWrite != nil {
+		return false
+	}
+	return int(hash.Sum32()%100) < percent
 }
 
 func (m *Manager) credentialSelfTester(provider string) (CredentialSelfTester, bool) {

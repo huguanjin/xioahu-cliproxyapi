@@ -384,6 +384,10 @@ export function SelfTestDialog({ open, onClose }: SelfTestDialogProps) {
                   label={t('auth_files.selftest_summary_validation')}
                   variant={styles.summaryValidation}
                 />
+                <SummaryCell
+                  value={counts.not_probed}
+                  label={t('auth_files.selftest_summary_not_probed')}
+                />
               </div>
             ) : (
               report && (
@@ -397,6 +401,10 @@ export function SelfTestDialog({ open, onClose }: SelfTestDialogProps) {
                     label={t('auth_files.selftest_summary_skipped')}
                   />
                   <SummaryCell
+                    value={report.not_probed}
+                    label={t('auth_files.selftest_summary_not_probed')}
+                  />
+                  <SummaryCell
                     value={report.healthy}
                     label={t('auth_files.selftest_summary_healthy')}
                     variant={styles.summaryHealthy}
@@ -404,6 +412,11 @@ export function SelfTestDialog({ open, onClose }: SelfTestDialogProps) {
                   <SummaryCell
                     value={report.cooling}
                     label={t('auth_files.selftest_summary_cooling')}
+                    variant={styles.summaryCooling}
+                  />
+                  <SummaryCell
+                    value={report.quota_exhausted}
+                    label={t('auth_files.selftest_summary_quota_exhausted')}
                     variant={styles.summaryCooling}
                   />
                   <SummaryCell

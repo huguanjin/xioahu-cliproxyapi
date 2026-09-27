@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -102,5 +103,29 @@ func TestAntigravitySelfTestCredentialHonoursDeadline(t *testing.T) {
 	}
 	if attempts != 1 {
 		t.Fatalf("expected the probe to stop after the deadline, got %d attempts", attempts)
+	}
+}
+
+// The deep probe's body is what makes it cheap enough to run on a schedule, so
+// its shape is part of the contract: one token out, and the prompt is constant so
+// the probe cannot be mistaken for user traffic.
+func TestAntigravitySelfTestGenerationBodyIsMinimal(t *testing.T) {
+	body := antigravitySelfTestGenerationBody()
+	if len(body) == 0 {
+		t.Fatal("generation body is empty")
+	}
+	text := string(body)
+	if !strings.Contains(text, `"maxOutputTokens":1`) {
+		t.Fatalf("generation body must cap output at one token, got %s", text)
+	}
+	if !strings.Contains(text, antigravitySelfTestGenerationText) {
+		t.Fatalf("generation body must carry the fixed probe prompt, got %s", text)
+	}
+	if !strings.Contains(text, `"role":"user"`) {
+		t.Fatalf("generation body must be a well-formed single-turn request, got %s", text)
+	}
+	// A probe that grew a schema or a system instruction would stop being a probe.
+	if strings.Contains(text, "systemInstruction") || strings.Contains(text, "responseSchema") {
+		t.Fatalf("generation body must stay minimal, got %s", text)
 	}
 }
