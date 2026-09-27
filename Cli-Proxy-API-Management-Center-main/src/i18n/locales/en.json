@@ -1349,7 +1349,9 @@
     "scan_disable_confirm": "Disable {{count}} credentials? They stop being scheduled and are written to disk. This can only be undone one by one.",
     "scan_disable_success": "Disabled {{count}} credentials",
     "scan_disable_partial": "Disabled {{success}}, {{failed}} failed",
-    "scan_clear": "Clear result"
+    "scan_clear": "Clear result",
+    "scan_incomplete": "Only {{resolved}} of {{scanned}} credentials returned a result. The rest were never queried — the sweep may have collided with another load. Run it again.",
+    "scan_no_result_hint": "Nothing failed, but that is because almost nothing was actually queried. Treat this as inconclusive, not as all-clear."
   },
   "plugin_management": {
     "title": "Plugin Management",

@@ -110,6 +110,12 @@ export interface QuotaScanResult {
   scanned: number;
   failed: number;
   failures: QuotaScanFailure[];
+  /**
+   * 真正取到结果的凭证数。0 个失败 + resolved 远小于 scanned，含义是
+   * 「大部分根本没取到数」，与「全部正常」是两回事，界面必须分开说。
+   * 旧结果没有这个字段，读取时按 scanned 兜底。
+   */
+  resolved?: number;
 }
 
 const QUOTA_SCAN_RESULT_KEY = 'quotaPage.scanResult';

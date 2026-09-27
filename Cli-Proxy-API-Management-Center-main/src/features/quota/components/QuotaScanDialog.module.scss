@@ -92,6 +92,18 @@
   color: var(--text-secondary);
 }
 
+/* 「未得出结论」的提示必须比正文更醒目：把它读成「全部正常」是这一步里
+   代价最高的误读。 */
+.warning {
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: 9px;
+  background: var(--bg-warning-light);
+  border: 1px solid var(--warning-border);
+  color: var(--text-primary);
+  font-size: 12.5px;
+}
+
 .selectionBar {
   display: flex;
   align-items: center;

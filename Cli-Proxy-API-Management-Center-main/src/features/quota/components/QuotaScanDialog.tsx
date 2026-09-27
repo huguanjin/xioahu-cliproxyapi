@@ -24,7 +24,6 @@ type QuotaScanDialogProps = {
   open: boolean;
   onClose: () => void;
   entries: QuotaFileEntry[];
-  quotaFor: (entry: QuotaFileEntry) => { status?: string; error?: string } | undefined;
   loadQuota: (targets: QuotaFileEntry[]) => Promise<void>;
 };
 
@@ -35,13 +34,7 @@ type QuotaScanDialogProps = {
  * /api-call），所以关闭弹窗不会中断它 —— 状态留在页面而不是弹窗。但刷新
  * 页面会中断，所以结果落 sessionStorage，避免「扫完了但刷新后找不到」。
  */
-export function QuotaScanDialog({
-  open,
-  onClose,
-  entries,
-  quotaFor,
-  loadQuota,
-}: QuotaScanDialogProps) {
+export function QuotaScanDialog({ open, onClose, entries, loadQuota }: QuotaScanDialogProps) {
   const { t } = useTranslation();
   const { showNotification, showConfirmation } = useNotificationStore();
   const connectionStatus = useAuthStore((state) => state.connectionStatus);
@@ -52,7 +45,7 @@ export function QuotaScanDialog({
   const [downloading, setDownloading] = useState(false);
   const [disabling, setDisabling] = useState(false);
 
-  const { running, progress, run, cancel } = useQuotaScan(loadQuota, quotaFor);
+  const { running, progress, run, cancel } = useQuotaScan(loadQuota);
 
   // 打开时把上次的结果读回来：刷新页面后仍能继续下载/停用。
   useEffect(() => {
@@ -82,6 +75,7 @@ export function QuotaScanDialog({
       scanned: outcome.scanned,
       failed: outcome.failures.length,
       failures: outcome.failures,
+      resolved: outcome.resolved,
     };
     setResult(next);
     setSelected(defaultSelection(next.failures));
@@ -338,8 +332,24 @@ export function QuotaScanDialog({
               </span>
             </div>
 
+            {/* 「0 个失败」必须能和「根本没取到数」分开。前者是所有凭证都
+                有响应，后者是这批请求压根没发出去（例如 loadQuota 自身忙时
+                直接返回），把它读成「全部正常」比报错更危险。 */}
+            {result.resolved !== undefined && result.resolved < result.scanned && (
+              <p className={styles.warning} role="alert">
+                {t('quota_management.scan_incomplete', {
+                  resolved: result.resolved,
+                  scanned: result.scanned,
+                })}
+              </p>
+            )}
+
             {result.failures.length === 0 ? (
-              <p className={styles.allGood}>{t('quota_management.scan_no_failures')}</p>
+              <p className={styles.allGood}>
+                {result.resolved !== undefined && result.resolved < result.scanned
+                  ? t('quota_management.scan_no_result_hint')
+                  : t('quota_management.scan_no_failures')}
+              </p>
             ) : (
               <>
                 <div className={styles.selectionBar}>

@@ -1375,7 +1375,9 @@
     "scan_disable_confirm": "確定停用 {{count}} 個憑證？它們將不再被調度，並會寫入磁碟。恢復只能逐個進行。",
     "scan_disable_success": "已停用 {{count}} 個憑證",
     "scan_disable_partial": "已停用 {{success}} 個，{{failed}} 個失敗",
-    "scan_clear": "清除結果"
+    "scan_clear": "清除結果",
+    "scan_incomplete": "只有 {{resolved}} / {{scanned}} 個憑證回傳了結果，其餘根本沒被請求到——可能與另一次載入撞車。請重跑。",
+    "scan_no_result_hint": "沒有失敗項，但那是因為幾乎沒真正取到數。這是「未得出結論」，不是「全部正常」。"
   },
   "plugin_management": {
     "title": "插件管理",

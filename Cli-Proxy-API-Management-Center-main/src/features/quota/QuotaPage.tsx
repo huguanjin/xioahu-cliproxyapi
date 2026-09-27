@@ -669,12 +669,13 @@ export function QuotaPage() {
         onDelete={handleBatchDelete}
       />
 
-      {/* 巡检覆盖全部凭证（不是当前页），所以它的取数目标是 entries 而不是 pageItems。 */}
+      {/* 巡检覆盖全部凭证（不是当前页），所以它的取数目标是 entries 而不是 pageItems。
+          失败判定由 hook 自己直读 store —— 传 getQuota 进去会让它读到点击那一刻的
+          陈旧快照，跑几分钟后必然报 0 个失败。 */}
       <QuotaScanDialog
         open={scanOpen}
         onClose={() => setScanOpen(false)}
         entries={entries}
-        quotaFor={getQuota}
         loadQuota={loadQuota}
       />
     </div>

@@ -11,7 +11,7 @@ import { useCallback, useRef, useState } from 'react';
 import type { TFunction } from 'i18next';
 import type { AuthFileItem } from '@/types';
 import type { QuotaFileEntry } from '../logic';
-import { QUOTA_ADAPTERS, getQuotaSetter } from '../providers';
+import { QUOTA_ADAPTERS, getQuotaMap, getQuotaSetter } from '../providers';
 import {
   buildScanFailures,
   chunkEntries,
@@ -33,6 +33,15 @@ export interface QuotaScanOutcome {
   failures: QuotaScanFailure[];
   scanned: number;
   cancelled: boolean;
+  /**
+   * 真正拿到结果的凭证数（success 或 error，而不是 idle）。
+   *
+   * 存在的理由：「0 个失败」和「根本没取到数」必须长得不一样。`loadQuota`
+   * 在自身忙时会直接返回 —— 那一批既没发请求也没写 store，但 await 正常
+   * 返回，循环会把它记成已完成。没有这个计数，一次实际什么都没做的巡检会
+   * 报出「全部正常」，比报错更危险。
+   */
+  resolved: number;
 }
 
 const emptyProgress: QuotaScanProgress = {
@@ -42,10 +51,26 @@ const emptyProgress: QuotaScanProgress = {
   retrying: false,
 };
 
-export function useQuotaScan(
-  loadQuota: (targets: QuotaFileEntry[]) => Promise<void>,
-  quotaFor: (entry: QuotaFileEntry) => { status?: string } | undefined
-) {
+/**
+ * 直读 store 的额度读取器 —— 不订阅、不缓存、每次调用取当时的 state。
+ *
+ * 这个函数的存在本身就是为了修一个 bug：巡检原先接收 QuotaPage 传进来的
+ * `quotaFor`，那是 `useCallback` 按渲染快照构造的。巡检要跑几分钟，期间
+ * store 被持续写入、组件反复重渲染，但那个正在跑的 async 函数始终握着
+ * **点击那一刻**的引用 —— 于是取数正确、卡片正确、筛选计数正确，唯独判定
+ * 读的是点击前的空状态，永远报 0 个失败。
+ *
+ * 所以这里不接受任何外部 reader。reader 由 store 现取，陈旧引用在结构上
+ * 无法存在，而不是靠调用方「记得传对的东西」。
+ */
+export const readLiveQuota = (
+  entry: QuotaFileEntry
+): { status?: string; error?: string } | undefined =>
+  getQuotaMap(QUOTA_ADAPTERS[entry.type])[entry.file.name] as
+    | { status?: string; error?: string }
+    | undefined;
+
+export function useQuotaScan(loadQuota: (targets: QuotaFileEntry[]) => Promise<void>) {
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<QuotaScanProgress>(emptyProgress);
   const cancelRef = useRef(false);
@@ -64,7 +89,7 @@ export function useQuotaScan(
       tuning: QuotaScanTuning = DEFAULT_QUOTA_SCAN_TUNING
     ): Promise<QuotaScanOutcome> => {
       if (runningRef.current || entries.length === 0) {
-        return { failures: [], scanned: 0, cancelled: false };
+        return { failures: [], scanned: 0, cancelled: false, resolved: 0 };
       }
       runningRef.current = true;
       cancelRef.current = false;
@@ -86,16 +111,17 @@ export function useQuotaScan(
         }
 
         if (cancelRef.current) {
-          return { failures: [], scanned: 0, cancelled: true };
+          return { failures: [], scanned: 0, cancelled: true, resolved: 0 };
         }
 
         // ---- 重试 ----
-        // Read failures back out of the store rather than tracking them live: the
+        // Failures are read back out of the store rather than tracked live: the
         // loader owns what counts as a failure, and asking it again is how this
-        // stays consistent with what the cards show.
+        // stays consistent with what the cards show. The read goes through
+        // readLiveQuota so it sees every batch that has landed since.
         const failedNames = new Set<string>();
         for (const entry of entries) {
-          if (quotaFor(entry)?.status === 'error') failedNames.add(entry.file.name);
+          if (readLiveQuota(entry)?.status === 'error') failedNames.add(entry.file.name);
         }
 
         setProgress((prev) => ({
@@ -117,7 +143,7 @@ export function useQuotaScan(
             if (cancelRef.current) break;
 
             await loadQuota([entry]);
-            if (quotaFor(entry)?.status === 'error') stillFailing.add(entry.file.name);
+            if (readLiveQuota(entry)?.status === 'error') stillFailing.add(entry.file.name);
             await sleep(tuning.retryIntervalMs);
           }
           failedNames.clear();
@@ -132,25 +158,32 @@ export function useQuotaScan(
         const messageFor = (name: string) => {
           for (const entry of entries) {
             if (entry.file.name !== name) continue;
-            const state = quotaFor(entry) as { error?: string } | undefined;
-            return state?.error ?? t('common.unknown_error');
+            return readLiveQuota(entry)?.error ?? t('common.unknown_error');
           }
           return t('common.unknown_error');
         };
         const fileFor = (name: string): AuthFileItem | undefined =>
           entries.find((entry) => entry.file.name === name)?.file;
 
+        // How many actually produced an answer. Anything still `idle` never got
+        // fetched — most likely a batch the loader declined because it was busy.
+        const resolved = entries.filter((entry) => {
+          const status = readLiveQuota(entry)?.status;
+          return status !== undefined && status !== 'idle' && status !== 'loading';
+        }).length;
+
         return {
           failures: buildScanFailures(names, messageFor, fileFor),
           scanned: entries.length,
           cancelled: false,
+          resolved,
         };
       } finally {
         runningRef.current = false;
         setRunning(false);
       }
     },
-    [loadQuota, quotaFor]
+    [loadQuota]
   );
 
   return { running, progress, run, cancel };
