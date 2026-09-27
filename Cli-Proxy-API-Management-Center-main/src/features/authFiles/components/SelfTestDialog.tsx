@@ -53,12 +53,36 @@ const elapsedSeconds = (startedAt: string, finishedAt?: string): number => {
   return (end - start) / 1000;
 };
 
-/** 单条失败记录的展示行。 */
+/**
+ * 单条失败记录的展示行。
+ *
+ * kind 决定左侧色条与文案：deterministic=已判死（红）、validation=待验证（蓝，
+ * 账号持有者仍可自行修复）、transient=临时故障（黄）。validation 行额外给出
+ * 后端从 403 里读到的验证链接，省去手工翻原始响应体。
+ */
 function FailureRow({ entry }: { entry: SelfTestFailureEntry }) {
   const { t } = useTranslation();
   const isDeterministic = entry.kind === 'deterministic';
+  const isValidation = entry.kind === 'validation';
+  const kindClass = isValidation
+    ? styles.failureValidation
+    : isDeterministic
+      ? styles.failureDeterministic
+      : '';
+  const kindLabel = isValidation
+    ? t('auth_files.selftest_kind_validation')
+    : isDeterministic
+      ? t('auth_files.selftest_kind_deterministic')
+      : t('auth_files.selftest_kind_transient');
+  // 403 的细分类型只在该 kind 下有意义：violation 是封禁，validation 是待验证。
+  const subtypeLabel =
+    entry.forbidden_type === 'violation'
+      ? t('auth_files.selftest_forbidden_violation')
+      : entry.forbidden_type === 'validation'
+        ? t('auth_files.selftest_forbidden_validation')
+        : null;
   return (
-    <div className={`${styles.failure} ${isDeterministic ? styles.failureDeterministic : ''}`}>
+    <div className={`${styles.failure} ${kindClass}`}>
       <div className={styles.failureHead}>
         <span className={styles.failureStatus}>{entry.status_code || '—'}</span>
         <span className={styles.failureLabel} title={entry.auth_id}>
@@ -69,11 +93,8 @@ function FailureRow({ entry }: { entry: SelfTestFailureEntry }) {
         </span>
       </div>
       <div className={styles.failureMeta}>
-        <span className={styles.failureKind}>
-          {isDeterministic
-            ? t('auth_files.selftest_kind_deterministic')
-            : t('auth_files.selftest_kind_transient')}
-        </span>
+        <span className={styles.failureKind}>{kindLabel}</span>
+        {subtypeLabel && <span>{subtypeLabel}</span>}
         {entry.cooldown_until && (
           <span className={styles.failureCooldown}>
             {t('auth_files.selftest_cooldown_until', {
@@ -82,6 +103,16 @@ function FailureRow({ entry }: { entry: SelfTestFailureEntry }) {
           </span>
         )}
       </div>
+      {entry.validation_url && (
+        <a
+          className={styles.failureMessage}
+          href={entry.validation_url}
+          target="_blank"
+          rel="noreferrer"
+        >
+          {t('auth_files.selftest_validation_link')}
+        </a>
+      )}
       {entry.message && <div className={styles.failureMessage}>{entry.message}</div>}
     </div>
   );
@@ -348,6 +379,11 @@ export function SelfTestDialog({ open, onClose }: SelfTestDialogProps) {
                   value={counts.transient}
                   label={t('auth_files.selftest_summary_transient')}
                 />
+                <SummaryCell
+                  value={counts.validation}
+                  label={t('auth_files.selftest_summary_validation')}
+                  variant={styles.summaryValidation}
+                />
               </div>
             ) : (
               report && (
@@ -382,6 +418,11 @@ export function SelfTestDialog({ open, onClose }: SelfTestDialogProps) {
                   <SummaryCell
                     value={report.transient}
                     label={t('auth_files.selftest_summary_transient')}
+                  />
+                  <SummaryCell
+                    value={report.validation}
+                    label={t('auth_files.selftest_summary_validation')}
+                    variant={styles.summaryValidation}
                   />
                 </div>
               )

@@ -168,6 +168,10 @@
   color: var(--danger-color, #d9534f);
 }
 
+.summaryValidation .summaryValue {
+  color: var(--info-color, #3b82c4);
+}
+
 /* ---------- 失败明细 ---------- */
 
 .failures {
@@ -201,6 +205,10 @@
 
 .failureDeterministic {
   border-left-color: var(--danger-color, #d9534f);
+}
+
+.failureValidation {
+  border-left-color: var(--info-color, #3b82c4);
 }
 
 .failureHead {

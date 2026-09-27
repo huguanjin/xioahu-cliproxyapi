@@ -3,16 +3,130 @@ package executor
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/util"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	log "github.com/sirupsen/logrus"
+	"github.com/tidwall/gjson"
 )
+
+// Antigravity 403 subtypes. The upstream sends every rejection as a bare 403, so
+// the body is the only thing that separates an account whose owner can fix it
+// from one that is gone. They are carried out to the caller as the failure kind
+// so a cooldown decision is never made on a status code alone.
+const (
+	antigravityForbiddenTypeValidation = "validation"
+	antigravityForbiddenTypeViolation  = "violation"
+)
+
+// antigravityValidationURLPattern is the last-resort extraction when the 403
+// body carries a link outside the documented metadata shape.
+var antigravityValidationURLPattern = regexp.MustCompile(`https://[^\s"'\\]+`)
+
+// antigravityClassifyForbiddenBody splits a 403 body into its subtype and, when
+// the account is merely unverified, the link the operator has to open.
+//
+// The subtype comes from the structured Google rpc ErrorInfo first, and only
+// falls back to free text when no ErrorInfo is present. That ordering is
+// deliberate: a substring match on "violation" would label any body that merely
+// mentions the word, and a false "violation" reads as a ban that is not there.
+func antigravityClassifyForbiddenBody(body []byte) (string, string) {
+	if len(body) == 0 {
+		return "", ""
+	}
+	reason, structured := antigravityForbiddenErrorReason(body)
+	forbiddenType := ""
+	if structured {
+		// A structured reason is authoritative. When one is present but names
+		// neither subtype — including a reason aimed at another surface, whose
+		// domain the helper refuses to read — the body stays unclassified rather
+		// than being re-matched through free text. The reason identifier itself
+		// lives in the body, so a substring fallback would otherwise match the
+		// very field the domain guard exists to reject.
+		switch strings.ToUpper(reason) {
+		case "VALIDATION_REQUIRED", "VALIDATION_FAILED":
+			forbiddenType = antigravityForbiddenTypeValidation
+		case "TOS_VIOLATION", "TERMS_OF_SERVICE_VIOLATION":
+			forbiddenType = antigravityForbiddenTypeViolation
+		}
+	} else {
+		lower := strings.ToLower(string(body))
+		switch {
+		case strings.Contains(lower, "validation_required"):
+			forbiddenType = antigravityForbiddenTypeValidation
+		case strings.Contains(lower, "terms of service") || strings.Contains(lower, "tos_violation"):
+			forbiddenType = antigravityForbiddenTypeViolation
+		}
+	}
+	if forbiddenType != antigravityForbiddenTypeValidation {
+		return forbiddenType, ""
+	}
+	return forbiddenType, antigravityExtractValidationURL(body)
+}
+
+// antigravityForbiddenErrorReason returns the reason of the first ErrorInfo
+// detail in the body and whether any such detail was present at all. The bool is
+// what separates "no structured verdict to read" from "a structured verdict the
+// domain check refused": the caller must not fall back to free text in the
+// second case, or a wrong-surface reason would be matched by its own text.
+//
+// A detail whose domain is not the Antigravity surface yields the empty reason
+// with structured true, so it is deliberately not read.
+func antigravityForbiddenErrorReason(body []byte) (string, bool) {
+	details := gjson.GetBytes(body, "error.details")
+	if !details.Exists() || !details.IsArray() {
+		return "", false
+	}
+	found := false
+	for _, detail := range details.Array() {
+		if detail.Get("@type").String() != "type.googleapis.com/google.rpc.ErrorInfo" {
+			continue
+		}
+		found = true
+		if !strings.EqualFold(strings.TrimSpace(detail.Get("domain").String()), "cloudcode-pa.googleapis.com") {
+			continue
+		}
+		return strings.TrimSpace(detail.Get("reason").String()), true
+	}
+	return "", found
+}
+
+// antigravityExtractValidationURL pulls the verification or appeal link out of a
+// validation 403, so the operator can act on it directly instead of pasting the
+// whole body into a browser search.
+func antigravityExtractValidationURL(body []byte) string {
+	var parsed struct {
+		Error struct {
+			Details []struct {
+				Metadata map[string]string `json:"metadata"`
+			} `json:"details"`
+		} `json:"error"`
+	}
+	if errUnmarshal := json.Unmarshal(body, &parsed); errUnmarshal == nil {
+		for _, detail := range parsed.Error.Details {
+			if url := strings.TrimSpace(detail.Metadata["validation_url"]); url != "" {
+				return url
+			}
+			if url := strings.TrimSpace(detail.Metadata["appeal_url"]); url != "" {
+				return url
+			}
+		}
+	}
+	lower := strings.ToLower(string(body))
+	if !strings.Contains(lower, "validation") &&
+		!strings.Contains(lower, "verify") &&
+		!strings.Contains(lower, "appeal") {
+		return ""
+	}
+	return strings.TrimSpace(antigravityValidationURLPattern.FindString(string(body)))
+}
 
 // antigravitySelfTestPayload is the smallest body countTokens accepts. A probe
 // only needs the upstream to decide whether this credential may call, so a
@@ -152,6 +266,12 @@ func (e *AntigravityExecutor) SelfTestCredential(ctx context.Context, auth *clip
 		Provider:   e.Identifier(),
 		StatusCode: lastStatus,
 		Message:    string(lastBody),
+	}
+	// A 403 is the only place the upstream tells the difference between an
+	// account its owner can still rescue and one that is gone, so the subtype
+	// travels with the result instead of being flattened into the status code.
+	if lastStatus == http.StatusForbidden {
+		result.ForbiddenType, result.ValidationURL = antigravityClassifyForbiddenBody(lastBody)
 	}
 	if lastStatus == http.StatusTooManyRequests {
 		if retryAfter, parseErr := helps.ParseRetryDelay(lastBody); parseErr == nil && retryAfter != nil {

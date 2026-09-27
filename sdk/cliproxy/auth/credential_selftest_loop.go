@@ -107,6 +107,10 @@ type SelfTestVerdictCounts struct {
 	// Transient covers probe failures our side could not attribute to the
 	// credential (transport errors, 5xx, our own deadline).
 	Transient int
+	// Validation counts credentials whose account still needs Google
+	// verification. They are neither healthy nor dead, and the run leaves their
+	// scheduling state untouched.
+	Validation int
 }
 
 // SelfTestFailure describes one credential a run flagged.
@@ -125,6 +129,11 @@ type SelfTestFailure struct {
 	Strikes int
 	// CooldownUntil is the deadline this run left on the credential.
 	CooldownUntil time.Time
+	// ForbiddenType is the 403 subtype the executor read from the body, empty
+	// when the executor made no distinction.
+	ForbiddenType string
+	// ValidationURL is the verification link that came with a validation 403.
+	ValidationURL string
 }
 
 // SelfTestFailureKind classifies why a probe failed.
@@ -136,6 +145,11 @@ const (
 	SelfTestFailureTransient SelfTestFailureKind = "transient"
 	// SelfTestFailureDeterministic covers failures the credential itself caused.
 	SelfTestFailureDeterministic SelfTestFailureKind = "deterministic"
+	// SelfTestFailureValidation covers the 403 the upstream sends when the
+	// account owner still has to complete Google's verification step. It is
+	// reported but drives no cooldown and no strike: the credential is not dead,
+	// a human simply has to act.
+	SelfTestFailureValidation SelfTestFailureKind = "validation"
 )
 
 // StartCredentialSelfTest launches the background loop that probes provider
@@ -447,18 +461,21 @@ func (l *credentialSelfTestLoop) runOnce(ctx context.Context, manual bool, markP
 		switch failure.Kind {
 		case SelfTestFailureDeterministic:
 			report.Verdict.Deterministic++
+			report.Verdict.Cooling++
 			if failure.Strikes >= l.options.DeterministicFailureThreshold {
 				report.Verdict.Escalated++
 			}
+		case SelfTestFailureValidation:
+			// Neither cooling nor deterministic: the run took no scheduling
+			// action, so counting it as either would misreport the pool.
+			report.Verdict.Validation++
 		default:
 			report.Verdict.Transient++
 		}
-		if failure.Kind == SelfTestFailureDeterministic {
-			report.Verdict.Cooling++
-		}
 		report.Failures = append(report.Failures, failure)
 	}
-	report.Verdict.Healthy = report.Probed - report.Verdict.Deterministic - report.Verdict.Transient
+	report.Verdict.Healthy = report.Probed - report.Verdict.Deterministic -
+		report.Verdict.Transient - report.Verdict.Validation
 	if report.Verdict.Healthy < 0 {
 		report.Verdict.Healthy = 0
 	}
@@ -469,9 +486,9 @@ func (l *credentialSelfTestLoop) runOnce(ctx context.Context, manual bool, markP
 	l.lastReport = report
 	l.mu.Unlock()
 
-	log.Infof("credential self-test: run complete manual=%v probed=%d skipped=%d healthy=%d cooling=%d deterministic=%d escalated=%d transient=%d in %s",
+	log.Infof("credential self-test: run complete manual=%v probed=%d skipped=%d healthy=%d cooling=%d deterministic=%d escalated=%d validation=%d transient=%d in %s",
 		manual, report.Probed, report.Skipped, report.Verdict.Healthy, report.Verdict.Cooling,
-		report.Verdict.Deterministic, report.Verdict.Escalated, report.Verdict.Transient,
+		report.Verdict.Deterministic, report.Verdict.Escalated, report.Verdict.Validation, report.Verdict.Transient,
 		report.FinishedAt.Sub(report.StartedAt).Round(time.Millisecond))
 	return report
 }
@@ -513,6 +530,8 @@ func (l *credentialSelfTestLoop) noteProgress(auth *Auth, failure SelfTestFailur
 		if failure.Strikes >= l.options.DeterministicFailureThreshold {
 			progress.Verdict.Escalated++
 		}
+	case SelfTestFailureValidation:
+		progress.Verdict.Validation++
 	case SelfTestFailureTransient:
 		progress.Verdict.Transient++
 	default:

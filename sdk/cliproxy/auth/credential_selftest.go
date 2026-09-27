@@ -33,6 +33,14 @@ type CredentialSelfTestResult struct {
 	// deterministic strikes, but the request never reached the inference path
 	// and must not advance the payment ladder.
 	ProbeError bool
+	// ForbiddenType carries the subtype an executor read out of a 403 body, when
+	// it can tell them apart. "validation" means the account owner can still fix
+	// it by completing Google's verification; "violation" means a terms-of-service
+	// ban. Empty means the executor made no distinction.
+	ForbiddenType string
+	// ValidationURL is the verification or appeal link the upstream sent with a
+	// validation 403, so the operator can act on it without reading the raw body.
+	ValidationURL string
 }
 
 // selfTestStrikes counts consecutive deterministic failures per auth. Unlike the
@@ -112,17 +120,36 @@ func (m *Manager) ApplyCredentialSelfTest(ctx context.Context, result Credential
 	if result.StatusCode == 0 {
 		return SelfTestFailure{}
 	}
-	kind, ok := classifySelfTestStatus(result.StatusCode)
+	kind, ok := classifySelfTestStatus(result.StatusCode, result.ForbiddenType)
 	if !ok {
 		// Transient upstream trouble (5xx, 408, connection resets) is not a
 		// verdict on the credential, so the probe stays silent rather than
 		// cooling a healthy credential down.
 		return SelfTestFailure{
-			AuthID:     authID,
-			Provider:   result.Provider,
-			StatusCode: result.StatusCode,
-			Message:    credentialSelfTestMessage(result),
-			Kind:       SelfTestFailureTransient,
+			AuthID:        authID,
+			Provider:      result.Provider,
+			StatusCode:    result.StatusCode,
+			Message:       credentialSelfTestMessage(result),
+			Kind:          SelfTestFailureTransient,
+			ForbiddenType: result.ForbiddenType,
+			ValidationURL: result.ValidationURL,
+		}
+	}
+
+	// A validation 403 is not a dead credential: the account owner can complete
+	// the verification step and the credential comes back, and its quota endpoint
+	// often keeps answering in the meantime. Recording it as a failure and
+	// cooling it down would be exactly the false positive the probe exists to
+	// avoid, so it is reported with no state change at all.
+	if kind == SelfTestFailureValidation {
+		return SelfTestFailure{
+			AuthID:        authID,
+			Provider:      result.Provider,
+			StatusCode:    result.StatusCode,
+			Message:       credentialSelfTestMessage(result),
+			Kind:          kind,
+			ForbiddenType: result.ForbiddenType,
+			ValidationURL: result.ValidationURL,
 		}
 	}
 
@@ -181,6 +208,8 @@ func (m *Manager) ApplyCredentialSelfTest(ctx context.Context, result Credential
 		Kind:          kind,
 		Strikes:       strikes,
 		CooldownUntil: authSnapshot.NextRetryAfter,
+		ForbiddenType: result.ForbiddenType,
+		ValidationURL: result.ValidationURL,
 	}
 	m.mu.Unlock()
 
@@ -218,9 +247,20 @@ func (m *Manager) ApplyCredentialSelfTest(ctx context.Context, result Credential
 // 404 is treated as transient on purpose: for these endpoints it usually means we
 // asked the wrong regional base or the upstream moved the path, neither of which
 // is the credential's fault.
-func classifySelfTestStatus(status int) (SelfTestFailureKind, bool) {
+//
+// A 403 is split by the subtype the executor read out of the body. Only the
+// unambiguous "validation" case is separated out; anything else, including a
+// 403 whose body named no subtype, stays deterministic. Erring toward
+// deterministic keeps an unclassifiable rejection from being silently excused,
+// which is the safer direction for a credential that may genuinely be dead.
+func classifySelfTestStatus(status int, forbiddenType string) (SelfTestFailureKind, bool) {
 	switch status {
-	case http.StatusUnauthorized, http.StatusPaymentRequired, http.StatusForbidden, http.StatusTooManyRequests:
+	case http.StatusForbidden:
+		if forbiddenType == string(SelfTestFailureValidation) {
+			return SelfTestFailureValidation, true
+		}
+		return SelfTestFailureDeterministic, true
+	case http.StatusUnauthorized, http.StatusPaymentRequired, http.StatusTooManyRequests:
 		return SelfTestFailureDeterministic, true
 	default:
 		return SelfTestFailureTransient, false

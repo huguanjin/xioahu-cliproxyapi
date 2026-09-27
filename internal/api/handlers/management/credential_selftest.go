@@ -25,6 +25,7 @@ type credentialSelfTestResponse struct {
 	Deterministic int                              `json:"deterministic"`
 	Escalated     int                              `json:"escalated"`
 	Transient     int                              `json:"transient"`
+	Validation    int                              `json:"validation"`
 	Failures      []credentialSelfTestFailureEntry `json:"failures,omitempty"`
 }
 
@@ -37,6 +38,11 @@ type credentialSelfTestFailureEntry struct {
 	Kind          string `json:"kind"`
 	Strikes       int    `json:"strikes"`
 	CooldownUntil string `json:"cooldown_until,omitempty"`
+	// ForbiddenType is the 403 subtype ("validation" or "violation") when the
+	// provider could read one out of the body, empty otherwise.
+	ForbiddenType string `json:"forbidden_type,omitempty"`
+	// ValidationURL is the verification link that came with a validation 403.
+	ValidationURL string `json:"validation_url,omitempty"`
 }
 
 // credentialSelfTestProgress is the live view of a run still in flight. Total and
@@ -53,6 +59,7 @@ type credentialSelfTestProgress struct {
 	Deterministic int                              `json:"deterministic"`
 	Escalated     int                              `json:"escalated"`
 	Transient     int                              `json:"transient"`
+	Validation    int                              `json:"validation"`
 	Failures      []credentialSelfTestFailureEntry `json:"failures,omitempty"`
 }
 
@@ -157,6 +164,7 @@ func buildCredentialSelfTestResponse(report *coreauth.SelfTestReport) credential
 		Deterministic: report.Verdict.Deterministic,
 		Escalated:     report.Verdict.Escalated,
 		Transient:     report.Verdict.Transient,
+		Validation:    report.Verdict.Validation,
 		Failures:      buildCredentialSelfTestFailures(report.Failures),
 	}
 	return response
@@ -174,6 +182,7 @@ func buildCredentialSelfTestProgress(progress *coreauth.SelfTestProgress) creden
 		Deterministic: progress.Verdict.Deterministic,
 		Escalated:     progress.Verdict.Escalated,
 		Transient:     progress.Verdict.Transient,
+		Validation:    progress.Verdict.Validation,
 		Failures:      buildCredentialSelfTestFailures(progress.Failures),
 	}
 }
@@ -185,13 +194,15 @@ func buildCredentialSelfTestFailures(failures []coreauth.SelfTestFailure) []cred
 	entries := make([]credentialSelfTestFailureEntry, 0, len(failures))
 	for _, failure := range failures {
 		entry := credentialSelfTestFailureEntry{
-			AuthID:     failure.AuthID,
-			Provider:   failure.Provider,
-			Label:      failure.Label,
-			StatusCode: failure.StatusCode,
-			Message:    failure.Message,
-			Kind:       string(failure.Kind),
-			Strikes:    failure.Strikes,
+			AuthID:        failure.AuthID,
+			Provider:      failure.Provider,
+			Label:         failure.Label,
+			StatusCode:    failure.StatusCode,
+			Message:       failure.Message,
+			Kind:          string(failure.Kind),
+			Strikes:       failure.Strikes,
+			ForbiddenType: failure.ForbiddenType,
+			ValidationURL: failure.ValidationURL,
 		}
 		if !failure.CooldownUntil.IsZero() {
 			entry.CooldownUntil = failure.CooldownUntil.UTC().Format(time.RFC3339)

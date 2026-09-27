@@ -76,11 +76,15 @@ export type SelfTestFailureEntry = {
   label?: string;
   status_code: number;
   message?: string;
-  /** deterministic=凭证自身问题；transient=网络/上游临时故障。 */
+  /** deterministic=凭证自身问题；transient=网络/上游临时故障；validation=账号待验证（持有者可自行修复）。 */
   kind: string;
   /** 连续确定性失败次数。 */
   strikes: number;
   cooldown_until?: string;
+  /** 403 的细分类型：validation=待验证；violation=违反条款被封禁。 */
+  forbidden_type?: string;
+  /** 待验证 403 附带的验证/申诉链接。 */
+  validation_url?: string;
 };
 
 /** 一次自检运行的汇总报告（后端 credentialSelfTestResponse）。 */
@@ -97,6 +101,7 @@ export type SelfTestReport = {
   deterministic: number;
   escalated: number;
   transient: number;
+  validation: number;
   failures?: SelfTestFailureEntry[];
 };
 
@@ -114,6 +119,7 @@ export type SelfTestProgress = {
   deterministic: number;
   escalated: number;
   transient: number;
+  validation: number;
   /** 进行中已标记的失败（后端上限 200 条）。 */
   failures?: SelfTestFailureEntry[];
 };
