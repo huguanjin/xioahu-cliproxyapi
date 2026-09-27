@@ -182,8 +182,14 @@ const (
 // discovers it. The loop runs even when options.Enabled is false: the schedule
 // stays off, but an operator can still trigger a run through the management API.
 //
+// The loop's lifetime is the manager's, not the caller's. It deliberately takes
+// no context: the only in-tree caller is an HTTP handler, whose request context
+// is cancelled the instant the handler returns its 202, and a loop bound to that
+// context would be dead before its first probe. Shutdown goes through
+// StopCredentialSelfTest instead.
+//
 // Only one loop is kept alive; starting a new one cancels the previous run.
-func (m *Manager) StartCredentialSelfTest(parent context.Context, options SelfTestOptions) {
+func (m *Manager) StartCredentialSelfTest(options SelfTestOptions) {
 	if m == nil {
 		return
 	}
@@ -201,7 +207,7 @@ func (m *Manager) StartCredentialSelfTest(parent context.Context, options SelfTe
 		cancelPrev()
 	}
 
-	ctx, cancelCtx := context.WithCancel(parent)
+	ctx, cancelCtx := context.WithCancel(context.Background())
 
 	loop := &credentialSelfTestLoop{
 		manager:         m,

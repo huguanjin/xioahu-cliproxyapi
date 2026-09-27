@@ -210,8 +210,10 @@ func (s *Service) Run(ctx context.Context) error {
 	// hits it. The loop always starts: with the schedule disabled it idles, and
 	// the management API can still trigger a run by hand. Providers whose
 	// executor does not implement the probe are skipped by the loop itself.
+	// The loop owns its lifetime rather than inheriting this one, and shutdown
+	// stops it explicitly below.
 	if s.coreManager != nil {
-		s.coreManager.StartCredentialSelfTest(context.Background(), selfTestOptionsFromConfig(s.cfg))
+		s.coreManager.StartCredentialSelfTest(selfTestOptionsFromConfig(s.cfg))
 		log.Info("credential self-test started")
 	}
 

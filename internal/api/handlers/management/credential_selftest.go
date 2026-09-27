@@ -1,7 +1,6 @@
 package management
 
 import (
-	"context"
 	"net/http"
 	"time"
 
@@ -116,7 +115,7 @@ func (h *Handler) PatchCredentialSelfTest(c *gin.Context) {
 	}
 	// A loop must exist for the switch to mean anything; start one if the
 	// service has not done so yet (embedders that never call Service.Run).
-	h.ensureSelfTestLoop(c.Request.Context())
+	h.ensureSelfTestLoop()
 	if !h.authManager.SetCredentialSelfTestScheduleEnabled(*body.Enabled) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "credential self-test loop is not running"})
 		return
@@ -141,7 +140,7 @@ func (h *Handler) PostCredentialSelfTest(c *gin.Context) {
 	// No loop means nothing to run on, so start one. The schedule flag is
 	// deliberately not consulted: the whole point of the manual trigger is to work
 	// while the schedule is off, and a fresh loop starts with the schedule off.
-	h.ensureSelfTestLoop(c.Request.Context())
+	h.ensureSelfTestLoop()
 	if !h.authManager.RunCredentialSelfTestNow() {
 		c.JSON(http.StatusConflict, gin.H{"error": "a credential self-test run is already in progress"})
 		return
@@ -153,11 +152,14 @@ func (h *Handler) PostCredentialSelfTest(c *gin.Context) {
 // options the manager already carries so a loop restarted from here keeps the
 // YAML-derived concurrency, period and thresholds. An existing loop is left
 // alone: restarting would drop its probe history and last report.
-func (h *Handler) ensureSelfTestLoop(ctx context.Context) {
+//
+// No context is passed on: the loop outlives every request, so handing it one
+// would tie its lifetime to a handler that returns immediately.
+func (h *Handler) ensureSelfTestLoop() {
 	if h == nil || h.authManager == nil || h.authManager.CredentialSelfTestRunning() {
 		return
 	}
-	h.authManager.StartCredentialSelfTest(ctx, h.authManager.CredentialSelfTestOptions())
+	h.authManager.StartCredentialSelfTest(h.authManager.CredentialSelfTestOptions())
 }
 
 func buildCredentialSelfTestResponse(report *coreauth.SelfTestReport) credentialSelfTestResponse {

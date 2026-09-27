@@ -400,3 +400,50 @@ func (s stubExecutor) CountTokens(context.Context, *Auth, cliproxyexecutor.Reque
 func (s stubExecutor) HttpRequest(context.Context, *Auth, *http.Request) (*http.Response, error) {
 	return nil, nil
 }
+
+// The loop's lifetime must not be tied to whatever request happened to start it.
+// A manual run is launched from an HTTP handler, and that request's context is
+// cancelled the moment the handler returns its 202 — which is immediately. When
+// the loop inherited it, the sweep died before launching its first probe and the
+// report came back with probed=0 and identical start and finish timestamps while
+// the pool was full of credentials that should have been examined.
+//
+// StartCredentialSelfTest now takes no context, so the type system carries most
+// of this. The test remains as the end-to-end guard: a loop started the way the
+// management handler starts it, then triggered at once, must actually probe.
+func TestCredentialSelfTestLoopSurvivesItsStarterContext(t *testing.T) {
+	manager := NewManager(nil, nil, nil)
+	if _, errRegister := manager.Register(WithSkipPersist(context.Background()), &Auth{
+		ID:       "a",
+		Provider: "antigravity",
+		Status:   StatusActive,
+	}); errRegister != nil {
+		t.Fatalf("Register returned error: %v", errRegister)
+	}
+	manager.RegisterExecutor(stubExecutor{id: "antigravity"})
+
+	manager.StartCredentialSelfTest(SelfTestOptions{
+		Interval:            time.Minute,
+		PerCredentialPeriod: time.Minute,
+		Timeout:             time.Second,
+		Concurrency:         1,
+	})
+	if !manager.RunCredentialSelfTestNow() {
+		t.Fatal("expected the manual run to be accepted")
+	}
+
+	// The sweep runs in the background; wait for it to report rather than sleeping
+	// a fixed period, so the test fails on the real defect instead of on timing.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if report := manager.LastCredentialSelfTestReport(); report != nil {
+			if report.Probed != 1 {
+				t.Fatalf("a manual run must probe the pool; got probed=%d skipped=%d",
+					report.Probed, report.Skipped)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("the run never produced a report")
+}
