@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { authFilesApi } from '@/services/api';
+import type { SelfTestOneResponse } from '@/services/api/authFiles';
 import { notifyAuthFilesChanged } from '@/features/authFiles/authFilesEvents';
 import { useNotificationStore } from '@/stores';
 import type { AuthFileItem } from '@/types';
@@ -50,6 +51,10 @@ export type UseAuthFilesDataResult = {
   clearingAllProxy: boolean;
   statusUpdating: Record<string, boolean>;
   manualRefreshing: Record<string, boolean>;
+  /** 正在手动测试连通性的凭证名。 */
+  connectivityTesting: Record<string, boolean>;
+  /** 每张凭证最近一次手动测试的结果，按 name 索引。 */
+  connectivityResults: Record<string, SelfTestOneResponse>;
   batchStatusUpdating: boolean;
   fileInputRef: RefObject<HTMLInputElement | null>;
   loadFiles: (options?: LoadFilesOptions) => Promise<void>;
@@ -60,6 +65,8 @@ export type UseAuthFilesDataResult = {
   handleClearAllProxy: () => void;
   handleDownload: (name: string) => Promise<void>;
   handleManualRefresh: (item: AuthFileItem) => Promise<void>;
+  /** 手动测试单张凭证的连通性。 */
+  handleTestConnectivity: (item: AuthFileItem) => Promise<void>;
   handleStatusToggle: (item: AuthFileItem, enabled: boolean) => Promise<void>;
   toggleSelect: (name: string) => void;
   selectAllVisible: (visibleFiles: AuthFileItem[]) => void;
@@ -85,6 +92,12 @@ export function useAuthFilesData(options?: UseAuthFilesDataOptions): UseAuthFile
   const [clearingAllProxy, setClearingAllProxy] = useState(false);
   const [statusUpdating, setStatusUpdating] = useState<Record<string, boolean>>({});
   const [manualRefreshing, setManualRefreshing] = useState<Record<string, boolean>>({});
+  const [connectivityTesting, setConnectivityTesting] = useState<Record<string, boolean>>({});
+  const [connectivityResults, setConnectivityResults] = useState<
+    Record<string, SelfTestOneResponse>
+  >({});
+  // 用 ref 做去重：同一张凭证在请求返回前不能被重复触发，而 state 更新是异步的。
+  const connectivityPendingRef = useRef<Set<string>>(new Set());
   const [batchStatusUpdating, setBatchStatusUpdating] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
 
@@ -575,6 +588,50 @@ export function useAuthFilesData(options?: UseAuthFilesDataOptions): UseAuthFile
     [showNotification, t]
   );
 
+  /**
+   * 手动连通性测试。
+   *
+   * 与「手动刷新」不同：刷新是让后端换 token，测试是发一次真实探测并立刻给出
+   * 可用性判断。后端不会因这次测试改动凭证的调度状态，所以重复点击是安全的。
+   *
+   * 结果留在本地状态里而不是刷新整个列表：一次测试不该触发全量重新拉取，
+   * 而且后端也不会因它改变列表里的任何字段。
+   */
+  const handleTestConnectivity = useCallback(
+    async (item: AuthFileItem) => {
+      const name = item.name.trim();
+      if (!name || connectivityPendingRef.current.has(name)) {
+        return;
+      }
+      connectivityPendingRef.current.add(name);
+      setConnectivityTesting((prev) => ({ ...prev, [name]: true }));
+      // 清掉上一次结果，否则旧结论会和新的一轮加载态同时显示。
+      setConnectivityResults((prev) => {
+        if (!prev[name]) return prev;
+        const next = { ...prev };
+        delete next[name];
+        return next;
+      });
+
+      try {
+        const result = await authFilesApi.testSelfTestOne(name);
+        setConnectivityResults((prev) => ({ ...prev, [name]: result }));
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : t('notification.update_failed');
+        showNotification(t('auth_files.connectivity_test_failed', { name, message }), 'error');
+      } finally {
+        connectivityPendingRef.current.delete(name);
+        setConnectivityTesting((prev) => {
+          if (!prev[name]) return prev;
+          const next = { ...prev };
+          delete next[name];
+          return next;
+        });
+      }
+    },
+    [showNotification, t]
+  );
+
   const handleStatusToggle = useCallback(
     async (item: AuthFileItem, enabled: boolean) => {
       const name = item.name;
@@ -802,6 +859,8 @@ export function useAuthFilesData(options?: UseAuthFilesDataOptions): UseAuthFile
     clearingAllProxy,
     statusUpdating,
     manualRefreshing,
+    connectivityTesting,
+    connectivityResults,
     batchStatusUpdating,
     fileInputRef,
     loadFiles,
@@ -812,6 +871,7 @@ export function useAuthFilesData(options?: UseAuthFilesDataOptions): UseAuthFile
     handleClearAllProxy,
     handleDownload,
     handleManualRefresh,
+    handleTestConnectivity,
     handleStatusToggle,
     toggleSelect,
     selectAllVisible,

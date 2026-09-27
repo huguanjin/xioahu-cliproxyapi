@@ -18,6 +18,9 @@ import {
   getAuthFileLastStatusCode,
   getTypeLabel,
   hasAuthFileProxy,
+  isAuthFileKnownBad,
+  isAuthFileKnownHealthy,
+  isAuthFileUntested,
   isProblemAuthFile,
   isRuntimeOnlyAuthFile,
   normalizeProviderKey,
@@ -49,6 +52,7 @@ import { useAuthFilesOauth } from '@/features/authFiles/hooks/useAuthFilesOauth'
 import { useAuthFilesPrefixProxyEditor } from '@/features/authFiles/hooks/useAuthFilesPrefixProxyEditor';
 import { useAuthFilesStatusBarCache } from '@/features/authFiles/hooks/useAuthFilesStatusBarCache';
 import {
+  isAuthFilesHealthFilterMode,
   isAuthFilesStatusCodeFilter,
   isAuthFilesStatusFilterMode,
   isAuthFilesSortMode,
@@ -56,6 +60,7 @@ import {
   readPersistedAuthFilesCompactMode,
   writeAuthFilesUiState,
   writePersistedAuthFilesCompactMode,
+  type AuthFilesHealthFilterMode,
   type AuthFilesStatusFilterMode,
   type AuthFilesSortMode,
 } from '@/features/authFiles/uiState';
@@ -93,6 +98,7 @@ export function AuthFilesPage() {
 
   const [filter, setFilter] = useState<'all' | string>('all');
   const [statusFilterMode, setStatusFilterMode] = useState<AuthFilesStatusFilterMode>('all');
+  const [healthFilterMode, setHealthFilterMode] = useState<AuthFilesHealthFilterMode>('all');
   const [noProxyOnly, setNoProxyOnly] = useState(false);
   const [statusCodeFilter, setStatusCodeFilter] = useState<string>('all');
   const [compactMode, setCompactMode] = useState(false);
@@ -140,6 +146,8 @@ export function AuthFilesPage() {
     clearingAllProxy,
     statusUpdating,
     manualRefreshing,
+    connectivityTesting,
+    connectivityResults,
     batchStatusUpdating,
     fileInputRef,
     loadFiles,
@@ -150,6 +158,7 @@ export function AuthFilesPage() {
     handleClearAllProxy,
     handleDownload,
     handleManualRefresh,
+    handleTestConnectivity,
     handleStatusToggle,
     toggleSelect,
     selectAllVisible,
@@ -250,6 +259,9 @@ export function AuthFilesPage() {
       if (typeof persisted.noProxyOnly === 'boolean') {
         setNoProxyOnly(persisted.noProxyOnly);
       }
+      if (isAuthFilesHealthFilterMode(persisted.healthFilterMode)) {
+        setHealthFilterMode(persisted.healthFilterMode);
+      }
       if (isAuthFilesStatusCodeFilter(persisted.statusCodeFilter)) {
         setStatusCodeFilter(persisted.statusCodeFilter);
       }
@@ -298,6 +310,7 @@ export function AuthFilesPage() {
       problemOnly,
       disabledOnly,
       noProxyOnly,
+      healthFilterMode,
       statusCodeFilter,
       compactMode,
       search,
@@ -315,6 +328,7 @@ export function AuthFilesPage() {
     filter,
     maxPageSize,
     noProxyOnly,
+    healthFilterMode,
     statusCodeFilter,
     page,
     pageSize,
@@ -484,13 +498,24 @@ export function AuthFilesPage() {
         if (disabledOnly && file.disabled !== true) return false;
         if (problemOnly && !isProblemAuthFile(file)) return false;
         if (noProxyOnly && hasAuthFileProxy(file)) return false;
+        if (healthFilterMode === 'healthy' && !isAuthFileKnownHealthy(file)) return false;
+        if (healthFilterMode === 'problem' && !isAuthFileKnownBad(file)) return false;
+        if (healthFilterMode === 'untested' && !isAuthFileUntested(file)) return false;
         if (statusCodeFilter !== 'all') {
           const code = getAuthFileLastStatusCode(file);
           if (code === undefined || String(code) !== statusCodeFilter) return false;
         }
         return true;
       }),
-    [disabledOnly, enabledOnly, files, noProxyOnly, problemOnly, statusCodeFilter]
+    [
+      disabledOnly,
+      enabledOnly,
+      files,
+      healthFilterMode,
+      noProxyOnly,
+      problemOnly,
+      statusCodeFilter,
+    ]
   );
 
   const statusCodeOptions = useMemo(
@@ -512,6 +537,17 @@ export function AuthFilesPage() {
         { value: 'disabled', label: t('auth_files.problem_filter_disabled') },
         { value: 'problem', label: t('auth_files.problem_filter_problem') },
       ] satisfies Array<{ value: AuthFilesStatusFilterMode; label: string }>,
+    [t]
+  );
+
+  const healthFilterOptions = useMemo(
+    () =>
+      [
+        { value: 'all', label: t('auth_files.health_filter_all') },
+        { value: 'healthy', label: t('auth_files.health_filter_healthy') },
+        { value: 'problem', label: t('auth_files.health_filter_problem') },
+        { value: 'untested', label: t('auth_files.health_filter_untested') },
+      ] satisfies Array<{ value: AuthFilesHealthFilterMode; label: string }>,
     [t]
   );
 
@@ -727,6 +763,9 @@ export function AuthFilesPage() {
           statusFilterMode={statusFilterMode}
           statusFilterOptions={statusFilterOptions}
           onStatusFilterChange={handleStatusFilterModeChange}
+          healthFilterMode={healthFilterMode}
+          healthFilterOptions={healthFilterOptions}
+          onHealthFilterChange={setHealthFilterMode}
           noProxyOnly={noProxyOnly}
           onNoProxyOnlyChange={handleNoProxyOnlyChange}
           statusCodeFilter={statusCodeFilter}
@@ -831,6 +870,9 @@ export function AuthFilesPage() {
                 onShowModels={showModels}
                 onDownload={handleDownload}
                 onManualRefresh={handleManualRefresh}
+                onTestConnectivity={handleTestConnectivity}
+                connectivityTesting={connectivityTesting}
+                connectivityResults={connectivityResults}
                 onOpenPrefixProxyEditor={openPrefixProxyEditor}
                 onDelete={handleDelete}
                 onToggleStatus={handleStatusToggle}

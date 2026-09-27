@@ -251,7 +251,7 @@
 .healthHead {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
+  /* 徽标插在标签与计数之间，所以左侧成组、右侧计数靠右 */
   gap: 8px;
 }
 
@@ -264,14 +264,67 @@
   color: var(--text-tertiary);
 }
 
+/* 自检判定徽标：全池扫描给出的结论，与实时请求计数分开显示 */
+.verdictBadge {
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  font-family: $font-mono;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.verdictHealthy {
+  color: var(--viz-success);
+  border-color: color-mix(in srgb, var(--viz-success) 40%, transparent);
+  background: color-mix(in srgb, var(--viz-success) 12%, transparent);
+}
+
+.verdictProblem {
+  color: var(--viz-failure);
+  border-color: color-mix(in srgb, var(--viz-failure) 40%, transparent);
+  background: color-mix(in srgb, var(--viz-failure) 12%, transparent);
+}
+
 .healthCounts {
   display: inline-flex;
   align-items: baseline;
   gap: 8px;
+  margin-left: auto;
   font-family: $font-mono;
   font-size: 11.5px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+
+/*
+  手动测试结果。四种情况必须看起来不同：
+  成功（绿）/ 测出问题（红）/ 探测没能进行（灰，无判定）/ 进行中（灰）。
+  把「没探测成」显示成红的会让人以为凭证坏了。
+*/
+.connectivityResult {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: $font-mono;
+  font-size: 10.5px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.connectivityOk {
+  color: var(--viz-success);
+}
+
+.connectivityBad {
+  color: var(--viz-failure);
+}
+
+.connectivityUnknown,
+.connectivityPending {
+  color: var(--text-tertiary);
 }
 
 .countOk {

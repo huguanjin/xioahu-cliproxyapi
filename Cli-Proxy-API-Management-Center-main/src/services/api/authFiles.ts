@@ -3,7 +3,7 @@
  */
 
 import { apiClient } from './client';
-import type { AuthFilesResponse } from '@/types/authFile';
+import type { AuthFilesResponse, SelfTestVerdict } from '@/types/authFile';
 import type { OAuthModelAliasEntry } from '@/types';
 import { normalizeOAuthProviderKey } from '@/utils/providerKeys';
 import {
@@ -144,6 +144,33 @@ export type SelfTestStatusResponse = {
   running: boolean;
   progress?: SelfTestProgress;
   last_report?: SelfTestReport;
+};
+
+/**
+ * 单张凭证连通性测试的结果（后端 credentialSelfTestOneResponse）。
+ *
+ * probed=false 表示没测成——provider 没有探测端点，或探测根本没跑起来。
+ * 此时 healthy 无意义，UI 必须显示「未探测」而不是「健康」。
+ */
+export type SelfTestOneResponse = {
+  auth_id: string;
+  provider: string;
+  label?: string;
+  probed: boolean;
+  healthy: boolean;
+  /** 上游状态码；0 表示探测没到达上游（拨号失败、超时）。 */
+  status_code: number;
+  message?: string;
+  /** 产生该结果的探测层级：1=授权探测；2=真实生成探测。 */
+  tier: number;
+  forbidden_type?: string;
+  validation_url?: string;
+  duration_seconds: number;
+  /** 探测时该凭证在调度里的判定，只读不改。 */
+  verdict?: string;
+  strikes?: number;
+  /** 探测无法运行的原因；与「被拒绝」不同，不构成对凭证的判定。 */
+  error?: string;
 };
 
 const getStatusCode = (err: unknown): number | undefined => {
@@ -332,6 +359,17 @@ const readIntegerField = (value: unknown): number | undefined => {
   return Number.isSafeInteger(parsed) ? parsed : undefined;
 };
 
+/**
+ * 读取自检判定。只接受后端明确定义的四个值，其余（含缺失）一律返回 undefined，
+ * 表示「未探测」——不做模糊匹配，也不回落成 healthy。
+ */
+const readSelfTestVerdict = (value: unknown): SelfTestVerdict | undefined => {
+  const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return raw === 'healthy' || raw === 'cooling' || raw === 'quarantine' || raw === 'validation'
+    ? raw
+    : undefined;
+};
+
 const readRuntimeOnlyField = (entry: AuthFileEntry): boolean => {
   const raw = entry['runtime_only'] ?? entry.runtimeOnly;
   if (typeof raw === 'boolean') return raw;
@@ -358,6 +396,12 @@ const normalizeAuthFileEntry = (entry: AuthFileEntry): AuthFileEntry => {
   const weight = readIntegerField(entry['weight']);
   const lastStatusCode = readIntegerField(entry['last_status_code'] ?? entry.lastStatusCode);
   const lastErrorCode = readTextField(entry, 'last_error_code');
+  // 自检字段只在整个 self_test 块存在时下发；缺失表示「从未被探测」，
+  // 不能回落成 healthy——那会把没测过的凭证当成可用的。
+  const selfTestVerdict = readSelfTestVerdict(entry['self_test_verdict']);
+  const selfTestStrikes = readIntegerField(entry['self_test_strikes']);
+  const selfTestNextProbeAt = entry['self_test_next_probe_at'];
+  const selfTestAutoDisableReason = readTextField(entry, 'self_test_auto_disable_reason');
 
   return {
     ...entry,
@@ -376,6 +420,13 @@ const normalizeAuthFileEntry = (entry: AuthFileEntry): AuthFileEntry => {
     // 缺失时不写 0，否则前端会把每个健康凭证都当成「状态码 0」。
     ...(lastStatusCode === undefined ? {} : { lastStatusCode }),
     ...(lastErrorCode ? { lastErrorCode } : {}),
+    ...(selfTestVerdict ? { selfTestVerdict } : {}),
+    ...(selfTestStrikes === undefined || selfTestStrikes <= 0 ? {} : { selfTestStrikes }),
+    ...(selfTestNextProbeAt === undefined || selfTestNextProbeAt === null
+      ? {}
+      : { selfTestNextProbeAt: selfTestNextProbeAt as string | number }),
+    ...(entry['self_test_auto_disabled'] === true ? { selfTestAutoDisabled: true } : {}),
+    ...(selfTestAutoDisableReason ? { selfTestAutoDisableReason } : {}),
   };
 };
 
@@ -604,6 +655,18 @@ export const authFilesApi = {
 
   // 返回 202：本轮在后台运行，进度与结果都从 getSelfTestStatus 轮询
   runSelfTest: () => apiClient.post<{ status: string }>('/credential-selftest/run', {}),
+
+  /**
+   * 测试单张凭证的连通性，同步返回结果。
+   *
+   * 与全池批量测试的区别：这个是针对某一张凭证的即时问答，超时由后端探测
+   * 超时兜底，所以可以同步返回；批量测试耗时以小时计，只能异步轮询。
+   *
+   * 后端不会因为这次测试改动凭证的调度状态（不记失败次数、不冷却、不自动停用），
+   * 因此可以放心连点。
+   */
+  testSelfTestOne: (name: string, model?: string) =>
+    apiClient.post<SelfTestOneResponse>('/credential-selftest/test', { name, model }),
 
   /**
    * 下载最近一次完成的批量测试报告。

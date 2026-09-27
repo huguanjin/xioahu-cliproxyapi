@@ -10,6 +10,7 @@ import {
   MIN_CARD_PAGE_SIZE,
 } from '@/features/authFiles/constants';
 import type {
+  AuthFilesHealthFilterMode,
   AuthFilesSortMode,
   AuthFilesStatusFilterMode,
 } from '@/features/authFiles/uiState';
@@ -21,6 +22,9 @@ export type AuthFilesToolbarProps = {
   statusFilterMode: AuthFilesStatusFilterMode;
   statusFilterOptions: Array<{ value: AuthFilesStatusFilterMode; label: string }>;
   onStatusFilterChange: (mode: AuthFilesStatusFilterMode) => void;
+  healthFilterMode: AuthFilesHealthFilterMode;
+  healthFilterOptions: Array<{ value: AuthFilesHealthFilterMode; label: string }>;
+  onHealthFilterChange: (mode: AuthFilesHealthFilterMode) => void;
   noProxyOnly: boolean;
   onNoProxyOnlyChange: (value: boolean) => void;
   statusCodeFilter: string;
@@ -63,6 +67,9 @@ export function AuthFilesToolbar(props: AuthFilesToolbarProps) {
     statusFilterMode,
     statusFilterOptions,
     onStatusFilterChange,
+    healthFilterMode,
+    healthFilterOptions,
+    onHealthFilterChange,
     noProxyOnly,
     onNoProxyOnlyChange,
     statusCodeFilter,
@@ -148,6 +155,35 @@ export function AuthFilesToolbar(props: AuthFilesToolbarProps) {
               }`}
               aria-pressed={isActive}
               onClick={() => onStatusFilterChange(option.value)}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/*
+        健康筛选独立于上面的状态筛选：状态看的是启用/停用与请求成败，
+        健康看的是批量测试对凭证下的判定（可正常调用 / 确定调不通 / 从未探测）。
+        两者可以叠加，例如「启用 + 健康」。
+      */}
+      <div
+        className={styles.segmented}
+        role="group"
+        aria-label={t('auth_files.health_filter_label')}
+      >
+        {healthFilterOptions.map((option) => {
+          const isActive = healthFilterMode === option.value;
+          const isProblem = option.value === 'problem';
+          return (
+            <button
+              key={option.value}
+              type="button"
+              className={`${styles.segment} ${isActive ? styles.segmentActive : ''} ${
+                isProblem ? styles.segmentProblem : ''
+              }`}
+              aria-pressed={isActive}
+              onClick={() => onHealthFilterChange(option.value)}
             >
               {option.label}
             </button>

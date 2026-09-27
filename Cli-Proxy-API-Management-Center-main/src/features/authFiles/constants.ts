@@ -134,8 +134,39 @@ export const hasAuthFileStatusWarning = (file: AuthFileItem): boolean => {
 };
 
 /**
+ * 自检判定是否说明这张凭证「现在能正常调用」。
+ *
+ * 只有 healthy 算可用。以下三种都不算，且理由各自不同：
+ * - cooling / quarantine：确定性问题，调用会失败
+ * - validation：账号待验证，持有者可自行修复，但修复前调不通
+ * - 无判定（从未被批量测试过）：没测过不等于可用，归为未知
+ *
+ * 所以这个函数只回答「已知可用」，不回答「已知不可用」——后者见
+ * isAuthFileKnownBad。把未探测过的凭证混进「可用」会让筛选结果骗人。
+ */
+export const isAuthFileKnownHealthy = (file: AuthFileItem): boolean =>
+  file.selfTestVerdict === 'healthy';
+
+/**
+ * 自检判定是否说明这张凭证「确定调不通」。
+ * 与 isAuthFileKnownHealthy 互补，但两者都不含「从未探测」——那是第三种状态。
+ */
+export const isAuthFileKnownBad = (file: AuthFileItem): boolean => {
+  const verdict = file.selfTestVerdict;
+  return verdict === 'cooling' || verdict === 'quarantine' || verdict === 'validation';
+};
+
+/** 从未被批量测试过（没有自检判定）。 */
+export const isAuthFileUntested = (file: AuthFileItem): boolean =>
+  file.selfTestVerdict === undefined;
+
+/**
  * 是否为需要用户处理的问题凭证。
  * 主动停用是独立状态，不应进入“问题”筛选或“删除问题凭证”的批量操作。
+ *
+ * 这里刻意不把自检判定算进来：该函数同时驱动「删除问题凭证」批量删除，
+ * 让全池扫描的结论进入删除集合会扩大一次破坏性操作的范围。健康筛选
+ * 走 isAuthFileKnownBad，两者互不影响。
  */
 export const isProblemAuthFile = (file: AuthFileItem): boolean => {
   const status = typeof file.status === 'string' ? file.status.trim().toLowerCase() : '';

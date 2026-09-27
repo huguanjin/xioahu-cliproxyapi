@@ -6,8 +6,11 @@ export const AUTH_FILES_STATUS_FILTER_MODES = [
   'problem',
 ] as const;
 
+export const AUTH_FILES_HEALTH_FILTER_MODES = ['all', 'healthy', 'problem', 'untested'] as const;
+
 export type AuthFilesSortMode = (typeof AUTH_FILES_SORT_MODES)[number];
 export type AuthFilesStatusFilterMode = (typeof AUTH_FILES_STATUS_FILTER_MODES)[number];
+export type AuthFilesHealthFilterMode = (typeof AUTH_FILES_HEALTH_FILTER_MODES)[number];
 
 export type AuthFilesUiState = {
   filter?: string;
@@ -15,6 +18,13 @@ export type AuthFilesUiState = {
   disabledOnly?: boolean;
   statusFilterMode?: AuthFilesStatusFilterMode;
   noProxyOnly?: boolean;
+  /**
+   * 健康筛选：基于自检判定的「可正常调用 / 确定调不通 / 从未探测」。
+   *
+   * 'untested' 是独立一项而不是并进 'healthy'：没测过的凭证并非可用，
+   * 把它们显示成可用会让人以为池子比实际健康。
+   */
+  healthFilterMode?: AuthFilesHealthFilterMode;
   /**
    * 状态码筛选，存 'all' 或后端下发的数字状态码字符串（如 '403'）。
    * 选项随数据动态生成，所以这里只做「是 all 或数字串」的形状校验，
@@ -38,6 +48,15 @@ const AUTH_FILES_SORT_MODE_SET = new Set<AuthFilesSortMode>(AUTH_FILES_SORT_MODE
 const AUTH_FILES_STATUS_FILTER_MODE_SET = new Set<AuthFilesStatusFilterMode>(
   AUTH_FILES_STATUS_FILTER_MODES
 );
+const AUTH_FILES_HEALTH_FILTER_MODE_SET = new Set<AuthFilesHealthFilterMode>(
+  AUTH_FILES_HEALTH_FILTER_MODES
+);
+
+export const isAuthFilesHealthFilterMode = (
+  value: unknown
+): value is AuthFilesHealthFilterMode =>
+  typeof value === 'string' &&
+  AUTH_FILES_HEALTH_FILTER_MODE_SET.has(value as AuthFilesHealthFilterMode);
 
 export const isAuthFilesSortMode = (value: unknown): value is AuthFilesSortMode =>
   typeof value === 'string' && AUTH_FILES_SORT_MODE_SET.has(value as AuthFilesSortMode);

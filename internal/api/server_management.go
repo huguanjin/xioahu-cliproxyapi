@@ -173,6 +173,7 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.GET("/credential-selftest", s.mgmt.GetCredentialSelfTestStatus)
 		mgmt.PATCH("/credential-selftest", s.mgmt.PatchCredentialSelfTest)
 		mgmt.POST("/credential-selftest/run", s.mgmt.PostCredentialSelfTest)
+		mgmt.POST("/credential-selftest/test", s.mgmt.PostCredentialSelfTestOne)
 		mgmt.GET("/credential-selftest/download", s.mgmt.DownloadCredentialSelfTestReport)
 		mgmt.POST("/vertex/import", s.mgmt.ImportVertexCredential)
 

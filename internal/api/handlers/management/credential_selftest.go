@@ -3,6 +3,7 @@ package management
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -265,6 +266,143 @@ func credentialSelfTestForbiddenBreakdown(failures []coreauth.SelfTestFailure) m
 		return nil
 	}
 	return counts
+}
+
+// credentialSelfTestOneResponse is the result of an on-demand connectivity test
+// on a single credential. It is a flat object rather than the loop's report
+// shape: a manual test answers about one credential, and the caller is a card in
+// a list, not a run summary.
+type credentialSelfTestOneResponse struct {
+	AuthID   string `json:"auth_id"`
+	Provider string `json:"provider"`
+	Label    string `json:"label,omitempty"`
+	// Probed is false when the provider has no check endpoint, or the probe could
+	// not be run at all. Healthy is meaningless unless this is true.
+	Probed bool `json:"probed"`
+	// Healthy is the answer the operator asked for: the credential served a real
+	// call just now.
+	Healthy bool `json:"healthy"`
+	// StatusCode is the upstream status; 0 means the probe never reached it.
+	StatusCode int    `json:"status_code"`
+	Message    string `json:"message,omitempty"`
+	// Tier is which probe produced this answer: 1 authorization, 2 generation.
+	Tier          int    `json:"tier"`
+	ForbiddenType string `json:"forbidden_type,omitempty"`
+	ValidationURL string `json:"validation_url,omitempty"`
+	// Duration is how long the probe took, so a slow credential reads differently
+	// from a dead one.
+	DurationSeconds float64 `json:"duration_seconds"`
+	// Verdict and Strikes are the loop's state as it stood when the test ran. They
+	// are reported rather than changed: testing a credential must not be able to
+	// strike it toward auto-disable.
+	Verdict string `json:"verdict,omitempty"`
+	Strikes int    `json:"strikes,omitempty"`
+	// Error is set when the probe could not run, which is not a verdict on the
+	// credential and must not be shown as one.
+	Error string `json:"error,omitempty"`
+}
+
+// PostCredentialSelfTestOne tests a single credential's connectivity and answers
+// synchronously.
+//
+// This is the counterpart to the pool-wide run: an operator looking at one card
+// wants an answer about that card, now, not a sweep report minutes later. It is
+// bounded by the probe timeout, so unlike the pool-wide trigger it can be served
+// inline.
+//
+// It never mutates scheduling state. See Manager.TestCredentialNow for why: a
+// button press must not be able to push a credential toward auto-disable.
+func (h *Handler) PostCredentialSelfTestOne(c *gin.Context) {
+	if h == nil || h.authManager == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "auth manager unavailable"})
+		return
+	}
+	var body struct {
+		Name string `json:"name"`
+		// AuthIndex is accepted as an alternative to Name, because the list sends
+		// both and either may be the one the caller has to hand.
+		AuthIndex string `json:"auth_index"`
+		// Model overrides the deep-probe model for this call.
+		Model string `json:"model"`
+	}
+	if errBind := c.ShouldBindJSON(&body); errBind != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
+		return
+	}
+	target := strings.TrimSpace(body.Name)
+	if target == "" {
+		target = strings.TrimSpace(body.AuthIndex)
+	}
+	if target == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name or auth_index is required"})
+		return
+	}
+	// The list addresses a credential by its file name; the manager keys by ID.
+	// Accept either so the caller does not have to know which it holds.
+	authID := h.resolveSelfTestAuthID(target)
+
+	result, errTest := h.authManager.TestCredentialNow(c.Request.Context(), authID, strings.TrimSpace(body.Model))
+	if errTest != nil {
+		switch {
+		case errors.Is(errTest, coreauth.ErrCredentialTestNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "credential not found"})
+		default:
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": errTest.Error()})
+		}
+		return
+	}
+	c.JSON(http.StatusOK, credentialSelfTestOneResponse{
+		AuthID:          result.AuthID,
+		Provider:        result.Provider,
+		Label:           result.Label,
+		Probed:          result.Probed,
+		Healthy:         result.Healthy,
+		StatusCode:      result.StatusCode,
+		Message:         result.Message,
+		Tier:            int(result.Tier),
+		ForbiddenType:   result.ForbiddenType,
+		ValidationURL:   result.ValidationURL,
+		DurationSeconds: result.Duration.Seconds(),
+		Verdict:         result.Verdict,
+		Strikes:         result.Strikes,
+		Error:           selfTestOneError(errTest, result),
+	})
+}
+
+// selfTestOneError reports why a test produced no verdict, or the empty string
+// when it did produce one. A transport failure is surfaced here rather than as a
+// rejection, because the two mean different things to an operator: one says the
+// credential is bad, the other says we could not ask.
+func selfTestOneError(errTest error, result coreauth.CredentialTestResult) string {
+	if errTest != nil {
+		return errTest.Error()
+	}
+	if result.Err != nil {
+		return result.Err.Error()
+	}
+	return ""
+}
+
+// resolveSelfTestAuthID maps whatever identifier the caller sent onto the auth
+// ID the manager keys by. A credential's file name and its ID are usually the
+// same, but a runtime-only or hand-renamed credential can differ, so both are
+// checked before giving up and passing the value through.
+func (h *Handler) resolveSelfTestAuthID(target string) string {
+	if h == nil || h.authManager == nil {
+		return target
+	}
+	if _, ok := h.authManager.GetByID(target); ok {
+		return target
+	}
+	for _, auth := range h.authManager.List() {
+		if auth == nil {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(auth.FileName), target) {
+			return auth.ID
+		}
+	}
+	return target
 }
 
 func buildCredentialSelfTestResponse(report *coreauth.SelfTestReport) credentialSelfTestResponse {

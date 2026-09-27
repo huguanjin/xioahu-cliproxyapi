@@ -63,8 +63,30 @@ export interface AuthFileItem {
   /** 是否已绑定代理，由后端根据 proxy_url 是否非空下发。 */
   has_proxy?: boolean;
   proxy_url?: string;
+  /**
+   * 最近一次自检（批量测试）对这张凭证的判定。
+   * healthy=最近一次探测通过；cooling=确定性失败已冷却；
+   * quarantine=连续失败已自动停用（首次干净探测会自动放回）；
+   * validation=账号待验证，持有者可自行修复。
+   * 从未被探测过的凭证不带该字段——不填「healthy」，因为没探测过不等于健康。
+   */
+  selfTestVerdict?: SelfTestVerdict;
+  /** 连续确定性失败次数。 */
+  selfTestStrikes?: number;
+  /** 下次进入探测队列的时间。 */
+  selfTestNextProbeAt?: string | number;
+  /** 是否由自检循环自动停用（与运维手工停用区分）。 */
+  selfTestAutoDisabled?: boolean;
+  /** 触发自动停用的上游信息。 */
+  selfTestAutoDisableReason?: string;
   [key: string]: unknown;
 }
+
+/** 自检判定（后端 SelfTestVerdict）。未探测过时后端不下发该字段。 */
+export type SelfTestVerdict = 'healthy' | 'cooling' | 'quarantine' | 'validation';
+
+/** 健康筛选：可正常调用的 / 有问题的 / 全部。 */
+export type AuthFilesHealthFilterMode = 'all' | 'healthy' | 'problem';
 
 export interface AuthFilesResponse {
   files: AuthFileItem[];

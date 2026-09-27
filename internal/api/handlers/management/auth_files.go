@@ -361,6 +361,29 @@ func (h *Handler) buildAuthFileEntryLocked(auth *coreauth.Auth) gin.H {
 	entry["success"] = auth.Success
 	entry["failed"] = auth.Failed
 	entry["recent_requests"] = auth.RecentRequestsSnapshot(time.Now())
+	// Surface the last self-test verdict so the UI can filter the pool by health.
+	// The verdict is what the scheduled sweep concluded, which is a different
+	// question from whether live traffic recently failed: a credential can be
+	// serving requests and still be on its way out, and one parked by the loop may
+	// never have been touched by traffic at all. An untouched credential reports
+	// nothing here rather than a fabricated "healthy".
+	if state := auth.SelfTestState(); !state.IsZero() {
+		if state.Verdict != coreauth.SelfTestVerdictUnknown {
+			entry["self_test_verdict"] = string(state.Verdict)
+		}
+		if state.Strikes > 0 {
+			entry["self_test_strikes"] = state.Strikes
+		}
+		if !state.NextProbeAt.IsZero() {
+			entry["self_test_next_probe_at"] = state.NextProbeAt
+		}
+		if state.AutoDisabled {
+			entry["self_test_auto_disabled"] = true
+		}
+		if reason := strings.TrimSpace(state.AutoDisableReason); reason != "" {
+			entry["self_test_auto_disable_reason"] = reason
+		}
+	}
 	if email := authEmail(auth); email != "" {
 		entry["email"] = email
 	}

@@ -9,11 +9,13 @@ import {
   IconInfo,
   IconModelCluster,
   IconRefreshCw,
+  IconSatellite,
   IconSettings,
   IconTrash2,
 } from '@/components/ui/icons';
 import { ProviderStatusBar } from '@/components/providers/ProviderStatusBar';
 import type { AuthFileItem } from '@/types';
+import type { SelfTestOneResponse } from '@/services/api/authFiles';
 import { resolveAuthProvider } from '@/utils/quota';
 import { statusBarDataFromRecentRequests } from '@/utils/recentRequests';
 import { formatFileSize } from '@/utils/format';
@@ -58,6 +60,12 @@ export type AuthFileCardProps = {
   onDelete: (name: string) => void;
   onToggleStatus: (file: AuthFileItem, enabled: boolean) => void;
   onToggleSelect: (name: string) => void;
+  /** 手动测试这张凭证的连通性（同步返回，不改动调度状态）。 */
+  onTestConnectivity?: (file: AuthFileItem) => void;
+  /** 正在测试中的凭证名。 */
+  connectivityTesting?: Record<string, boolean>;
+  /** 每张凭证最近一次手动测试的结果，按 name 索引。 */
+  connectivityResults?: Record<string, SelfTestOneResponse>;
 };
 
 const resolveQuotaType = (file: AuthFileItem): QuotaProviderType | null => {
@@ -87,6 +95,9 @@ export function AuthFileCard(props: AuthFileCardProps) {
     onDelete,
     onToggleStatus,
     onToggleSelect,
+    onTestConnectivity,
+    connectivityTesting,
+    connectivityResults,
   } = props;
 
   const isRuntimeOnly = isRuntimeOnlyAuthFile(file);
@@ -114,6 +125,40 @@ export function AuthFileCard(props: AuthFileCardProps) {
 
   const rawStatusMessage = getAuthFileStatusMessage(file);
   const hasStatusWarning = hasAuthFileStatusWarning(file);
+
+  // 自检判定徽标。healthy 之外的三种都是「现在调不通」，统一样式。
+  const selfTestVerdict = file.selfTestVerdict;
+  const verdictClass =
+    selfTestVerdict === 'healthy' ? styles.verdictHealthy : styles.verdictProblem;
+
+  // 手动测试结果。probed=false 时没有判定可言，必须与「测出问题」区分开。
+  const connectivityResult = connectivityResults?.[file.name];
+  const isConnectivityTesting = connectivityTesting?.[file.name] === true;
+  const connectivityClass = isConnectivityTesting
+    ? styles.connectivityPending
+    : !connectivityResult
+      ? ''
+      : connectivityResult.probed
+        ? connectivityResult.healthy
+          ? styles.connectivityOk
+          : styles.connectivityBad
+        : styles.connectivityUnknown;
+  const connectivityText = isConnectivityTesting
+    ? t('auth_files.connectivity_testing')
+    : !connectivityResult
+      ? ''
+      : !connectivityResult.probed
+        ? connectivityResult.error
+          ? t('auth_files.connectivity_error', { message: connectivityResult.error })
+          : t('auth_files.connectivity_unprobed')
+        : connectivityResult.healthy
+          ? t('auth_files.connectivity_ok', {
+              seconds: connectivityResult.duration_seconds.toFixed(1),
+            })
+          : t('auth_files.connectivity_failed', {
+              code: connectivityResult.status_code,
+              seconds: connectivityResult.duration_seconds.toFixed(1),
+            });
 
   const priorityValue = Number.isSafeInteger(file.priority) ? file.priority : undefined;
   const weightValue = Number.isSafeInteger(file.weight) ? file.weight : undefined;
@@ -237,6 +282,21 @@ export function AuthFileCard(props: AuthFileCardProps) {
       <div className={styles.health}>
         <div className={styles.healthHead}>
           <span className={styles.healthLabel}>{t('auth_files.health_status_label')}</span>
+          {/*
+            自检判定徽标。只在批量测试给出过结论时出现——从未探测过的凭证
+            没有徽标，而不是显示一个「健康」：没测过不等于可用。
+          */}
+          {selfTestVerdict && (
+            <span
+              className={`${styles.verdictBadge} ${verdictClass}`}
+              title={t(`auth_files.health_filter_${selfTestVerdict === 'healthy' ? 'healthy' : 'problem'}`)}
+            >
+              {t(`auth_files.self_test_verdict_${selfTestVerdict}`)}
+              {typeof file.selfTestStrikes === 'number' && file.selfTestStrikes > 0
+                ? ` ${file.selfTestStrikes}`
+                : ''}
+            </span>
+          )}
           <span className={styles.healthCounts}>
             <span
               className={`${styles.countOk} ${successCount > 0 ? styles.countLive : ''}`}
@@ -253,6 +313,16 @@ export function AuthFileCard(props: AuthFileCardProps) {
           </span>
         </div>
         <ProviderStatusBar statusData={statusData} styles={styles} />
+        {/*
+          手动测试结果。与上面的批量判定分开显示：它是一次即时问答，
+          不写回调度状态，所以不能覆盖徽标。
+        */}
+        {connectivityResult && (
+          <div className={`${styles.connectivityResult} ${connectivityClass}`}>
+            {isConnectivityTesting && <LoadingSpinner size={12} />}
+            <span>{connectivityText}</span>
+          </div>
+        )}
       </div>
 
       <div className={styles.metaRow}>
@@ -305,6 +375,26 @@ export function AuthFileCard(props: AuthFileCardProps) {
           )}
           {!isRuntimeOnly && (
             <div className={styles.utilityActions}>
+              {/*
+                手动连通性测试。按钮只挂在一处：后端不会因这次测试改动凭证的
+                调度状态（不记失败、不冷却、不自动停用），所以可以放心连点。
+              */}
+              {onTestConnectivity && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => onTestConnectivity(file)}
+                  className={styles.iconButton}
+                  title={t('auth_files.connectivity_test_button')}
+                  disabled={disableControls || isConnectivityTesting}
+                >
+                  {isConnectivityTesting ? (
+                    <LoadingSpinner size={14} />
+                  ) : (
+                    <IconSatellite size={15} />
+                  )}
+                </Button>
+              )}
               {showManualRefreshButton && (
                 <Button
                   variant="secondary"
