@@ -30,6 +30,11 @@ type credentialSelfTestResponse struct {
 	Escalated     int    `json:"escalated"`
 	Transient     int    `json:"transient"`
 	Validation    int    `json:"validation"`
+	// Revoked counts credentials whose refresh token the upstream permanently
+	// rejected. They are cooled like a deterministic failure but are never
+	// auto-disabled, so they are reported apart from Deterministic: an operator
+	// watching this class needs the count before deciding to let the pool drop it.
+	Revoked int `json:"revoked"`
 	// QuotaExhausted is the share of Cooling that only the deep probe could
 	// find: credentials whose generation quota is spent, which a cheap probe
 	// passes.
@@ -76,6 +81,7 @@ type credentialSelfTestProgress struct {
 	Escalated      int                              `json:"escalated"`
 	Transient      int                              `json:"transient"`
 	Validation     int                              `json:"validation"`
+	Revoked        int                              `json:"revoked"`
 	QuotaExhausted int                              `json:"quota_exhausted"`
 	NotProbed      int                              `json:"not_probed"`
 	Failures       []credentialSelfTestFailureEntry `json:"failures,omitempty"`
@@ -420,6 +426,7 @@ func buildCredentialSelfTestResponse(report *coreauth.SelfTestReport) credential
 		Escalated:      report.Verdict.Escalated,
 		Transient:      report.Verdict.Transient,
 		Validation:     report.Verdict.Validation,
+		Revoked:        report.Verdict.Revoked,
 		QuotaExhausted: report.Verdict.QuotaExhausted,
 		NotProbed:      report.Verdict.NotProbed,
 		Failures:       buildCredentialSelfTestFailures(report.Failures),
@@ -440,6 +447,7 @@ func buildCredentialSelfTestProgress(progress *coreauth.SelfTestProgress) creden
 		Escalated:      progress.Verdict.Escalated,
 		Transient:      progress.Verdict.Transient,
 		Validation:     progress.Verdict.Validation,
+		Revoked:        progress.Verdict.Revoked,
 		QuotaExhausted: progress.Verdict.QuotaExhausted,
 		NotProbed:      progress.Verdict.NotProbed,
 		Failures:       buildCredentialSelfTestFailures(progress.Failures),

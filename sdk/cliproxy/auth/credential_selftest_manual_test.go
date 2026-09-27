@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"testing"
+	"time"
 
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
 )
@@ -237,3 +238,158 @@ func TestCredentialTestReportsExistingVerdict(t *testing.T) {
 		t.Fatalf("the loop's state must survive a manual test, got %+v", state)
 	}
 }
+
+// A revoked refresh token is an OAuth 400, which the status-code switch alone
+// would class as transient and excuse. That left a permanently dead credential in
+// the pool, retried on every sweep forever — the exact outcome the probe exists to
+// prevent. The executor says so out of band, and that signal must reach the kind.
+func TestApplyCredentialSelfTestTreatsRevokedAsCooling(t *testing.T) {
+	withQuotaCooldownEnabled(t)
+	manager := NewManager(nil, nil, nil)
+	auth := &Auth{ID: "revoked", Provider: "antigravity", Metadata: map[string]any{"type": "antigravity"}}
+	if _, errRegister := manager.Register(WithSkipPersist(context.Background()), auth); errRegister != nil {
+		t.Fatalf("Register returned error: %v", errRegister)
+	}
+
+	failure := manager.ApplyCredentialSelfTest(context.Background(), CredentialSelfTestResult{
+		AuthID:            auth.ID,
+		Provider:          "antigravity",
+		StatusCode:        http.StatusBadRequest,
+		Message:           `{"error":"invalid_grant"}`,
+		ProbeError:        true,
+		CredentialRevoked: true,
+	})
+	if failure.Kind != SelfTestFailureRevoked {
+		t.Fatalf("kind = %q, want %q", failure.Kind, SelfTestFailureRevoked)
+	}
+	updated, _ := manager.GetByID(auth.ID)
+	if updated == nil {
+		t.Fatal("expected the auth to still be registered")
+	}
+	state := updated.SelfTestState()
+	if state.Strikes != 1 {
+		t.Fatalf("a revoked credential must earn a strike, got %d", state.Strikes)
+	}
+	if state.Verdict != SelfTestVerdictCooling {
+		t.Fatalf("verdict = %q, want cooling", state.Verdict)
+	}
+	if updated.NextRetryAfter.IsZero() || !updated.NextRetryAfter.After(time.Now()) {
+		t.Fatalf("a revoked credential must be cooled down, got %v", updated.NextRetryAfter)
+	}
+}
+
+// The operator asked to watch this class before the pool drops it. Cooling keeps
+// it out of dispatch, which is the property that matters; auto-disable is the
+// irreversible half and must not happen here.
+func TestRevokedCredentialIsNeverAutoDisabled(t *testing.T) {
+	withQuotaCooldownEnabled(t)
+	manager := NewManager(nil, nil, nil)
+	auth := &Auth{ID: "revoked", Provider: "antigravity", Metadata: map[string]any{"type": "antigravity"}}
+	if _, errRegister := manager.Register(WithSkipPersist(context.Background()), auth); errRegister != nil {
+		t.Fatalf("Register returned error: %v", errRegister)
+	}
+	// Auto-disable is on, so only the revoked rule can be what stops it.
+	manager.PublishSelfTestOptions(SelfTestOptions{
+		AutoDisableOnThreshold:        true,
+		DeterministicFailureThreshold: 3,
+	})
+
+	for i := 0; i < 6; i++ {
+		manager.ApplyCredentialSelfTest(context.Background(), CredentialSelfTestResult{
+			AuthID:            auth.ID,
+			StatusCode:        http.StatusBadRequest,
+			Message:           `{"error":"invalid_grant"}`,
+			ProbeError:        true,
+			CredentialRevoked: true,
+		})
+	}
+
+	updated, _ := manager.GetByID(auth.ID)
+	if updated == nil {
+		t.Fatal("expected the auth to still be registered")
+	}
+	if updated.Disabled {
+		t.Fatal("a revoked credential must never be auto-disabled: the operator asked to observe it first")
+	}
+	state := updated.SelfTestState()
+	if state.AutoDisabled {
+		t.Fatal("the auto-disabled flag must stay clear for a revoked credential")
+	}
+	if state.Strikes < 3 {
+		t.Fatalf("strikes should still accrue, got %d", state.Strikes)
+	}
+	// It must still be out of dispatch, which the cooldown achieves on its own.
+	if updated.NextRetryAfter.IsZero() {
+		t.Fatal("a revoked credential must stay cooled down even without auto-disable")
+	}
+}
+
+// An ordinary deterministic failure must still auto-disable, so the revoked rule
+// is a carve-out rather than a hole in the threshold.
+func TestDeterministicFailureStillAutoDisables(t *testing.T) {
+	withQuotaCooldownEnabled(t)
+	manager := NewManager(nil, nil, nil)
+	auth := &Auth{ID: "banned", Provider: "antigravity", Metadata: map[string]any{"type": "antigravity"}}
+	if _, errRegister := manager.Register(WithSkipPersist(context.Background()), auth); errRegister != nil {
+		t.Fatalf("Register returned error: %v", errRegister)
+	}
+	manager.PublishSelfTestOptions(SelfTestOptions{
+		AutoDisableOnThreshold:        true,
+		DeterministicFailureThreshold: 3,
+	})
+
+	for i := 0; i < 3; i++ {
+		manager.ApplyCredentialSelfTest(context.Background(), CredentialSelfTestResult{
+			AuthID:     auth.ID,
+			StatusCode: http.StatusForbidden,
+			Message:    `{"error":{"message":"violation of Terms of Service"}}`,
+		})
+	}
+
+	updated, _ := manager.GetByID(auth.ID)
+	if updated == nil {
+		t.Fatal("expected the auth to still be registered")
+	}
+	if !updated.Disabled {
+		t.Fatal("a credentialed ban must still auto-disable at the threshold")
+	}
+}
+
+// The revoked marker must survive the error path, since that is how the executor
+// reports it: an error carrying CredentialNeedsAction, not a result.
+func TestSelfTestErrorDetailsCarriesRevokedMarker(t *testing.T) {
+	status, revoked, ok := selfTestErrorDetails(revokedProbeError{})
+	if !ok || !revoked {
+		t.Fatalf("ok=%v revoked=%v, want both true", ok, revoked)
+	}
+	if status != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", status)
+	}
+
+	// A plain rejection carries no marker, and must not be read as revoked.
+	_, revoked, ok = selfTestErrorDetails(plainProbeError{})
+	if !ok || revoked {
+		t.Fatalf("ok=%v revoked=%v, want ok=true revoked=false", ok, revoked)
+	}
+
+	// A 5xx is upstream trouble and carries no verdict at all.
+	if _, _, ok := selfTestErrorDetails(serverProbeError{}); ok {
+		t.Fatal("a 5xx must not be treated as a credential verdict")
+	}
+}
+
+type revokedProbeError struct{}
+
+func (revokedProbeError) Error() string               { return "invalid_grant" }
+func (revokedProbeError) StatusCode() int             { return http.StatusBadRequest }
+func (revokedProbeError) CredentialNeedsAction() bool { return true }
+
+type plainProbeError struct{}
+
+func (plainProbeError) Error() string   { return "rejected" }
+func (plainProbeError) StatusCode() int { return http.StatusBadRequest }
+
+type serverProbeError struct{}
+
+func (serverProbeError) Error() string   { return "upstream down" }
+func (serverProbeError) StatusCode() int { return http.StatusServiceUnavailable }

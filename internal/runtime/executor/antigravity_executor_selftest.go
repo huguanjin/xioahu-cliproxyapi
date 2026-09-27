@@ -24,6 +24,12 @@ import (
 const (
 	antigravityForbiddenTypeValidation = "validation"
 	antigravityForbiddenTypeViolation  = "violation"
+	// antigravityForbiddenTypeRestricted is a separate ban from a terms-of-service
+	// violation: the upstream reports it as an OAuth-style access_denied with
+	// "Account Restricted" rather than a ToS message. Both are unusable without
+	// operator action, but they are different upstream states and an appeal goes
+	// to a different place, so they must not be merged into one bucket.
+	antigravityForbiddenTypeRestricted = "restricted"
 )
 
 // antigravityValidationURLPattern is the last-resort extraction when the 403
@@ -63,6 +69,16 @@ func antigravityClassifyForbiddenBody(body []byte) (string, string) {
 			forbiddenType = antigravityForbiddenTypeValidation
 		case strings.Contains(lower, "terms of service") || strings.Contains(lower, "tos_violation"):
 			forbiddenType = antigravityForbiddenTypeViolation
+		// The restricted-account rejection arrives as a flat OAuth error object
+		// rather than the nested rpc ErrorInfo the other two use, which is why it
+		// reaches this branch at all. "access_denied" alone is the OAuth code for
+		// any refusal, so the description has to confirm it is an account
+		// restriction before the body is labelled: calling an ordinary refusal a
+		// ban would be the more expensive mistake.
+		case strings.Contains(lower, "account restricted") ||
+			strings.Contains(lower, "account_restricted") ||
+			(strings.Contains(lower, "access_denied") && strings.Contains(lower, "restrict")):
+			forbiddenType = antigravityForbiddenTypeRestricted
 		}
 	}
 	if forbiddenType != antigravityForbiddenTypeValidation {

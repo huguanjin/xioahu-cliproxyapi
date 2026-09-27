@@ -15,13 +15,17 @@ import (
 )
 
 // antigravitySelfTestGenerationText is the whole prompt the deep probe sends. One
-// token in, one token out: the probe needs the upstream to decide whether this
-// credential may generate, not to produce anything useful.
-const antigravitySelfTestGenerationText = "ping"
+// short turn in, one short turn out: the probe needs the upstream to decide
+// whether this credential may generate, not to produce anything useful. A plain
+// greeting is the smallest prompt a text model answers without preamble.
+const antigravitySelfTestGenerationText = "你好"
 
-// antigravitySelfTestMaxOutputTokens keeps the deep probe's sampled cost at a
-// single output token. Some models reject an unset limit, so it is sent rather
-// than omitted.
+// antigravitySelfTestMaxOutputTokens keeps the deep probe's sampled cost small.
+// Some models reject an unset limit, so it is sent rather than omitted.
+//
+// For Gemini-family models the live request path strips this field before sending
+// (antigravity_executor_request.go), so the cap is best-effort there and the probe
+// relies on the prompt being short instead. Claude models keep it.
 const antigravitySelfTestMaxOutputTokens = 1
 
 // SelfTestCredentialGeneration performs the deep probe: a minimal but real
@@ -131,11 +135,20 @@ func (e *AntigravityExecutor) SelfTestCredentialGeneration(ctx context.Context, 
 }
 
 // antigravitySelfTestGenerationBody is the deep probe's request body: one token
-// in, one token out. It is a function rather than a constant so a unit test can
-// assert the shape without a live upstream.
+// in, one token out.
+//
+// The payload has to sit inside a "request" envelope. Antigravity's generateContent
+// takes a v1internal-shaped body — the same wrapper buildRequest produces for a
+// live call — and an unwrapped {contents, generationConfig} is rejected with
+// INVALID_ARGUMENT ("Unknown name contents"), because the upstream looks for both
+// fields one level down. Getting this wrong made every deep probe fail with a 400
+// that then read as a transient upstream fault, so the probe silently never ran.
+//
+// Deep probing a Claude model is the same shape: Antigravity routes Claude models
+// through this one endpoint and only the model field differs.
 func antigravitySelfTestGenerationBody() []byte {
-	return []byte(`{"contents":[{"role":"user","parts":[{"text":"` +
+	return []byte(`{"request":{"contents":[{"role":"user","parts":[{"text":"` +
 		antigravitySelfTestGenerationText +
 		`"}]}],"generationConfig":{"maxOutputTokens":` +
-		strconv.Itoa(antigravitySelfTestMaxOutputTokens) + `}}`)
+		strconv.Itoa(antigravitySelfTestMaxOutputTokens) + `}}}`)
 }

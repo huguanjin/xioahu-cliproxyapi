@@ -136,6 +136,11 @@ type SelfTestVerdictCounts struct {
 	// verification. They are neither healthy nor dead, and the run leaves their
 	// scheduling state untouched.
 	Validation int
+	// Revoked counts credentials whose refresh token the upstream permanently
+	// rejected. They are counted in Cooling as well, because they do receive a
+	// cooldown — but they are never auto-disabled, which is what makes them worth
+	// reporting separately from Deterministic.
+	Revoked int
 	// QuotaExhausted counts credentials the deep probe found with a spent
 	// generation quota. They are also counted in Cooling, so this is a subset
 	// rather than a sibling: it is the share of cooldowns that a cheap probe
@@ -194,6 +199,14 @@ const (
 	// reported but drives no cooldown and no strike: the credential is not dead,
 	// a human simply has to act.
 	SelfTestFailureValidation SelfTestFailureKind = "validation"
+	// SelfTestFailureRevoked covers a credential whose refresh token the upstream
+	// has permanently rejected (OAuth invalid_grant: revoked, expired, or reused).
+	// No retry brings it back, so it earns strikes and a cooldown like a
+	// deterministic failure — but it is never auto-disabled, because an operator
+	// asked to watch this class of credential before letting the pool drop it.
+	// The cooldown alone keeps it out of dispatch, which is the property that
+	// matters; auto-disable is the irreversible half.
+	SelfTestFailureRevoked SelfTestFailureKind = "revoked"
 )
 
 // StartCredentialSelfTest launches the background loop that probes provider
@@ -580,6 +593,15 @@ func (l *credentialSelfTestLoop) runOnce(ctx context.Context, manual bool, markP
 			if failure.Strikes >= options.DeterministicFailureThreshold {
 				report.Verdict.Escalated++
 			}
+		case SelfTestFailureRevoked:
+			// Cooled like a deterministic failure, but counted on its own: an
+			// operator watching this class needs to see how many the pool is
+			// carrying without them being mistaken for ordinary strikes.
+			report.Verdict.Revoked++
+			report.Verdict.Cooling++
+			if failure.Strikes >= options.DeterministicFailureThreshold {
+				report.Verdict.Escalated++
+			}
 		case SelfTestFailureValidation:
 			// Neither cooling nor deterministic: the run took no scheduling
 			// action, so counting it as either would misreport the pool.
@@ -649,6 +671,12 @@ func (l *credentialSelfTestLoop) noteProgress(auth *Auth, failure SelfTestFailur
 		if failure.quotaExhausted() {
 			progress.Verdict.QuotaExhausted++
 		}
+		if failure.Strikes >= options.DeterministicFailureThreshold {
+			progress.Verdict.Escalated++
+		}
+	case failure.Kind == SelfTestFailureRevoked:
+		progress.Verdict.Revoked++
+		progress.Verdict.Cooling++
 		if failure.Strikes >= options.DeterministicFailureThreshold {
 			progress.Verdict.Escalated++
 		}
@@ -800,13 +828,14 @@ func (l *credentialSelfTestLoop) probeOne(parent context.Context, auth *Auth) (S
 		// (a missing or refused refresh token, for example), which is exactly
 		// the deterministic failure the escalation threshold exists for. Routing
 		// it through ApplyCredentialSelfTest lets the shared classifier decide.
-		if status, ok := selfTestErrorStatus(errProbe); ok {
+		if status, revoked, ok := selfTestErrorDetails(errProbe); ok {
 			failure := l.applyProbeResult(parent, CredentialSelfTestResult{
-				AuthID:     auth.ID,
-				Provider:   provider,
-				StatusCode: status,
-				Message:    errProbe.Error(),
-				ProbeError: true,
+				AuthID:            auth.ID,
+				Provider:          provider,
+				StatusCode:        status,
+				Message:           errProbe.Error(),
+				ProbeError:        true,
+				CredentialRevoked: revoked,
 			})
 			if failure.AuthID != "" {
 				return failure, selfTestOutcomeFailed
@@ -944,27 +973,36 @@ func (m *Manager) credentialSelfTester(provider string) (CredentialSelfTester, b
 	return tester, true
 }
 
-// selfTestErrorStatus extracts an HTTP status from a probe error, if it carries
-// one. Executors report upstream rejections they hit while acquiring a token as
-// errors rather than results, and those still carry a status; a structural check
-// keeps this package free of any executor import.
+// selfTestErrorDetails extracts an HTTP status from a probe error along with the
+// revoked marker, if the error carries them. Executors report upstream rejections
+// they hit while acquiring a token as errors rather than results, and those still
+// carry a status; a structural check keeps this package free of any executor import.
 //
 // Only 4xx counts. A 5xx reported through an error is upstream trouble, not the
 // credential's verdict, and must not cool the credential down — the classifier
 // would say the same, so filtering here keeps the two paths consistent.
-func selfTestErrorStatus(err error) (int, bool) {
+//
+// The marker is what separates a credential that needs a new token from one that
+// cannot get one: the upstream answers both with the same OAuth 400. Only the
+// executor knows which it is, and it says so through CredentialNeedsAction.
+func selfTestErrorDetails(err error) (int, bool, bool) {
 	if err == nil {
-		return 0, false
+		return 0, false, false
 	}
 	var withStatus interface{ StatusCode() int }
 	if !errors.As(err, &withStatus) {
-		return 0, false
+		return 0, false, false
 	}
 	status := withStatus.StatusCode()
 	if status < http.StatusBadRequest || status >= http.StatusInternalServerError {
-		return 0, false
+		return 0, false, false
 	}
-	return status, true
+	revoked := false
+	var withAction interface{ CredentialNeedsAction() bool }
+	if errors.As(err, &withAction) {
+		revoked = withAction.CredentialNeedsAction()
+	}
+	return status, revoked, true
 }
 
 // selfTestOptions returns the options the running loop uses, falling back to

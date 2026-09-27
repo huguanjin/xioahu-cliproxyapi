@@ -111,13 +111,19 @@ func (m *Manager) TestCredentialNow(ctx context.Context, authID string, model st
 		// An executor that attaches a status is reporting a rejection it already
 		// got upstream (a refused refresh token, for example), which is a real
 		// answer rather than a failure to ask.
-		if status, ok := selfTestErrorStatus(errProbe); ok {
+		if status, revoked, ok := selfTestErrorDetails(errProbe); ok {
 			result.Probed = true
 			result.StatusCode = status
 			result.Message = errProbe.Error()
 			result.Duration = time.Since(startedAt)
-			result.Healthy = status >= http.StatusOK && status < http.StatusMultipleChoices
+			result.Healthy = false
 			result.Tier = SelfTestTierAuthorization
+			// A revoked refresh token is not a healthy answer, but it is a
+			// different kind of bad from a rejection: the operator has to replace
+			// the credential, not wait for it.
+			if revoked {
+				result.ForbiddenType = string(SelfTestFailureRevoked)
+			}
 			return result, nil
 		}
 		result.Err = errProbe

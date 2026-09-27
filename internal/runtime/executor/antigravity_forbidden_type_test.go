@@ -66,6 +66,23 @@ func TestAntigravityClassifyForbiddenBody(t *testing.T) {
 			wantType: antigravityForbiddenTypeViolation,
 		},
 		{
+			// The restricted-account rejection is a flat OAuth error object, not
+			// the nested rpc ErrorInfo the other two use, so it exercises the free
+			// text branch. It is a separate state from a ToS violation: the appeal
+			// goes somewhere else.
+			name:     "restricted account from a flat oauth error",
+			body:     `{"error": "access_denied", "error_description": "Account Restricted"}`,
+			wantType: antigravityForbiddenTypeRestricted,
+		},
+		{
+			// access_denied is the OAuth code for any refusal, so on its own it must
+			// not be read as a ban: mislabelling an ordinary refusal would be the
+			// more expensive mistake.
+			name:     "access_denied alone stays unclassified",
+			body:     `{"error": "access_denied", "error_description": "Bad Request"}`,
+			wantType: "",
+		},
+		{
 			// A plain 403 stays unclassified. Guessing here would let a
 			// project-level permission error read as an account ban.
 			name:     "plain 403 names no subtype",

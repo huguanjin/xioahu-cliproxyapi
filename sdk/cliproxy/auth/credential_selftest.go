@@ -56,6 +56,10 @@ type CredentialSelfTestResult struct {
 	// ValidationURL is the verification or appeal link the upstream sent with a
 	// validation 403, so the operator can act on it without reading the raw body.
 	ValidationURL string
+	// CredentialRevoked marks a rejection the upstream reported while acquiring a
+	// token that no retry can clear: the refresh token is gone. The status alone
+	// cannot express this — it is an OAuth 400 — so the executor has to say it.
+	CredentialRevoked bool
 	// Tier is which probe produced this result. It defaults to
 	// SelfTestTierAuthorization so a caller that does not distinguish tiers keeps
 	// the cheaper probe's meaning.
@@ -91,7 +95,7 @@ func (m *Manager) ApplyCredentialSelfTest(ctx context.Context, result Credential
 	if result.StatusCode == 0 {
 		return SelfTestFailure{}
 	}
-	kind, ok := classifySelfTestStatus(result.StatusCode, result.ForbiddenType)
+	kind, ok := classifySelfTestStatus(result.StatusCode, result.ForbiddenType, result.CredentialRevoked)
 	if !ok {
 		// Transient upstream trouble (5xx, 408, connection resets) is not a verdict
 		// on the credential. The probe is still reported so an operator can see the
@@ -237,7 +241,11 @@ func (m *Manager) applySelfTestFailure(ctx context.Context, authID string, resul
 	autoDisabled := false
 	if strikes >= options.DeterministicFailureThreshold {
 		verdict = SelfTestVerdictQuarantine
-		autoDisabled = options.AutoDisableOnThreshold
+		// A revoked refresh token cools down but is never auto-disabled. The
+		// cooldown already keeps it out of dispatch, which is the property that
+		// matters; auto-disable is the irreversible half, and this class of
+		// credential is one an operator asked to observe before the pool drops it.
+		autoDisabled = options.AutoDisableOnThreshold && kind != SelfTestFailureRevoked
 	}
 	state.Verdict = verdict
 	state.NextProbeAt = now.Add(options.BackoffForVerdict(verdict, strikes))
@@ -346,7 +354,14 @@ func (m *Manager) afterSelfTestStateChange(snapshot *Auth) {
 // 403 whose body named no subtype, stays deterministic. Erring toward
 // deterministic keeps an unclassifiable rejection from being silently excused,
 // which is the safer direction for a credential that may genuinely be dead.
-func classifySelfTestStatus(status int, forbiddenType string) (SelfTestFailureKind, bool) {
+// A revoked refresh token is checked before the status switch. The upstream
+// answers it with an OAuth 400, which the switch would otherwise call transient
+// and excuse — leaving a permanently dead credential in the pool, retried
+// forever, which is the exact outcome the probe exists to prevent.
+func classifySelfTestStatus(status int, forbiddenType string, revoked bool) (SelfTestFailureKind, bool) {
+	if revoked {
+		return SelfTestFailureRevoked, true
+	}
 	switch status {
 	case http.StatusForbidden:
 		if forbiddenType == string(SelfTestFailureValidation) {

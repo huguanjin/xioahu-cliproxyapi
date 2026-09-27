@@ -2,9 +2,11 @@ package executor
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -128,4 +130,84 @@ func TestAntigravitySelfTestGenerationBodyIsMinimal(t *testing.T) {
 	if strings.Contains(text, "systemInstruction") || strings.Contains(text, "responseSchema") {
 		t.Fatalf("generation body must stay minimal, got %s", text)
 	}
+}
+
+// The deep probe's body must be in the v1internal envelope. Antigravity looks for
+// contents and generationConfig one level down, under "request", and answers an
+// unwrapped body with INVALID_ARGUMENT ("Unknown name contents") — a 400 that then
+// read as a transient upstream fault, so the probe never actually ran and reported
+// nothing. Asserting only on substrings is what let that ship: the strings were all
+// present, in the wrong place. This test parses the JSON and checks the structure.
+func TestAntigravitySelfTestGenerationBodyUsesV1InternalEnvelope(t *testing.T) {
+	body := antigravitySelfTestGenerationBody()
+
+	var decoded map[string]json.RawMessage
+	if errUnmarshal := json.Unmarshal(body, &decoded); errUnmarshal != nil {
+		t.Fatalf("generation body is not valid JSON: %v (%s)", errUnmarshal, body)
+	}
+
+	// The envelope is what the upstream validates first, so its absence is checked
+	// separately from the fields inside it.
+	rawRequest, ok := decoded["request"]
+	if !ok {
+		t.Fatalf("generation body must nest the payload under \"request\"; got top-level keys %v", keysOf(decoded))
+	}
+	// Nothing may sit beside "request": a stray top-level "contents" is exactly the
+	// shape the upstream rejected, and would fail again even with the envelope added.
+	for key := range decoded {
+		if key != "request" {
+			t.Fatalf("unexpected top-level key %q; the probe payload belongs under \"request\"", key)
+		}
+	}
+
+	var inner map[string]json.RawMessage
+	if errUnmarshal := json.Unmarshal(rawRequest, &inner); errUnmarshal != nil {
+		t.Fatalf("\"request\" is not an object: %v", errUnmarshal)
+	}
+	for _, field := range []string{"contents", "generationConfig"} {
+		if _, ok := inner[field]; !ok {
+			t.Fatalf("\"request\" must carry %q; got keys %v", field, keysOf(inner))
+		}
+	}
+
+	// And the probe must still be a single short turn, not something a model would
+	// spend real budget on.
+	var contents []struct {
+		Role  string `json:"role"`
+		Parts []struct {
+			Text string `json:"text"`
+		} `json:"parts"`
+	}
+	if errUnmarshal := json.Unmarshal(inner["contents"], &contents); errUnmarshal != nil {
+		t.Fatalf("contents is not an array of turns: %v", errUnmarshal)
+	}
+	if len(contents) != 1 || len(contents[0].Parts) != 1 {
+		t.Fatalf("the probe must be exactly one turn with one part, got %+v", contents)
+	}
+	if contents[0].Role != "user" {
+		t.Fatalf("the probe turn must be from the user, got %q", contents[0].Role)
+	}
+	if contents[0].Parts[0].Text != antigravitySelfTestGenerationText {
+		t.Fatalf("the probe prompt must be the fixed text %q, got %q",
+			antigravitySelfTestGenerationText, contents[0].Parts[0].Text)
+	}
+
+	var genConfig struct {
+		MaxOutputTokens int `json:"maxOutputTokens"`
+	}
+	if errUnmarshal := json.Unmarshal(inner["generationConfig"], &genConfig); errUnmarshal != nil {
+		t.Fatalf("generationConfig is not an object: %v", errUnmarshal)
+	}
+	if genConfig.MaxOutputTokens != antigravitySelfTestMaxOutputTokens {
+		t.Fatalf("maxOutputTokens = %d, want %d", genConfig.MaxOutputTokens, antigravitySelfTestMaxOutputTokens)
+	}
+}
+
+func keysOf(m map[string]json.RawMessage) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }

@@ -468,6 +468,11 @@ export function SelfTestDialog({ open, onClose }: SelfTestDialogProps) {
                     label={t('auth_files.selftest_summary_deterministic')}
                   />
                   <SummaryCell
+                    value={report.revoked}
+                    label={t('auth_files.selftest_summary_revoked')}
+                    variant={styles.summaryCooling}
+                  />
+                  <SummaryCell
                     value={report.escalated}
                     label={t('auth_files.selftest_summary_escalated')}
                     variant={styles.summaryEscalated}

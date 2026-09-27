@@ -323,6 +323,7 @@
     "selftest_summary_skipped": "已跳过",
     "selftest_summary_not_probed": "无法探测",
     "selftest_summary_quota_exhausted": "配额耗尽",
+    "selftest_summary_revoked": "令牌已失效",
     "selftest_summary_healthy": "健康",
     "selftest_summary_cooling": "冷却中",
     "selftest_summary_deterministic": "确定性失败",
