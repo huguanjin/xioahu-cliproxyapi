@@ -80,6 +80,8 @@ export type SelfTestFailureEntry = {
   kind: string;
   /** 连续确定性失败次数。 */
   strikes: number;
+  /** 产生该失败的探测层级：1=授权探测（countTokens）；2=真实生成探测。 */
+  tier: number;
   cooldown_until?: string;
   /** 403 的细分类型：validation=待验证；violation=违反条款被封禁。 */
   forbidden_type?: string;
@@ -602,6 +604,20 @@ export const authFilesApi = {
 
   // 返回 202：本轮在后台运行，进度与结果都从 getSelfTestStatus 轮询
   runSelfTest: () => apiClient.post<{ status: string }>('/credential-selftest/run', {}),
+
+  /**
+   * 下载最近一次完成的批量测试报告。
+   *
+   * 状态接口为了能被每秒轮询而做得很小，只带 200 条失败；这个接口只取一次，
+   * 因此返回完整失败列表，外加按 kind 和按 403 子类型的汇总。404 表示还没有
+   * 跑完的测试，由调用方提示用户先跑一次。
+   */
+  downloadSelfTestReport: async (): Promise<Blob> => {
+    const response = await apiClient.getRaw('/credential-selftest/download', {
+      responseType: 'blob',
+    });
+    return response.data as Blob;
+  },
 
   // OAuth 排除模型
   async getOauthExcludedModels(): Promise<Record<string, string[]>> {

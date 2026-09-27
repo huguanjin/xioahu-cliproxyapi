@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { Modal } from '@/components/ui/Modal';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
-import { IconAlertTriangle, IconRefreshCw } from '@/components/ui/icons';
+import { IconAlertTriangle, IconDownload, IconRefreshCw } from '@/components/ui/icons';
 import {
   authFilesApi,
   type SelfTestFailureEntry,
@@ -151,6 +151,7 @@ export function SelfTestDialog({ open, onClose }: SelfTestDialogProps) {
   const [running, setRunning] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [schedulePending, setSchedulePending] = useState(false);
   // 每秒重算运行时长；轮询本身不足以让读数平滑。
@@ -226,6 +227,39 @@ export function SelfTestDialog({ open, onClose }: SelfTestDialogProps) {
     }
   }, [t, loadStatus]);
 
+  /**
+   * 下载最近一次报告。
+   *
+   * 后端在还没有跑完的测试时返回 404，这不是错误状态而是「先去跑一次」，
+   * 因此单独给出提示，而不是把 404 当成失败弹出来。
+   */
+  const handleDownload = useCallback(async () => {
+    setDownloading(true);
+    setError(null);
+    try {
+      const blob = await authFilesApi.downloadSelfTestReport();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `credential-selftest-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '')}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      const status = (err as { status?: number })?.status;
+      setError(
+        status === 404
+          ? t('auth_files.selftest_download_no_report')
+          : err instanceof Error
+            ? err.message
+            : t('auth_files.selftest_download_failed')
+      );
+    } finally {
+      setDownloading(false);
+    }
+  }, [t]);
+
   const handleToggleSchedule = useCallback(
     async (next: boolean) => {
       setSchedulePending(true);
@@ -267,6 +301,16 @@ export function SelfTestDialog({ open, onClose }: SelfTestDialogProps) {
           <Button variant="ghost" onClick={onClose}>
             {t('auth_files.selftest_close')}
           </Button>
+          {/* 下载只在有完成报告时出现：没有报告时后端返回 404，
+              与其让用户点出一个报错，不如根本不给出这个按钮。 */}
+          {report && (
+            <Button variant="ghost" onClick={() => void handleDownload()} disabled={downloading}>
+              {downloading ? <LoadingSpinner size={14} /> : <IconDownload size={14} />}
+              {downloading
+                ? t('auth_files.selftest_downloading')
+                : t('auth_files.selftest_download_button')}
+            </Button>
+          )}
           <Button onClick={handleRun} disabled={running || starting || loadingStatus}>
             {running || starting ? <LoadingSpinner size={14} /> : <IconRefreshCw size={14} />}
             {running

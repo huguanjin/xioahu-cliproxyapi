@@ -1,7 +1,11 @@
 package management
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -37,13 +41,17 @@ type credentialSelfTestResponse struct {
 }
 
 type credentialSelfTestFailureEntry struct {
-	AuthID        string `json:"auth_id"`
-	Provider      string `json:"provider"`
-	Label         string `json:"label,omitempty"`
-	StatusCode    int    `json:"status_code"`
-	Message       string `json:"message,omitempty"`
-	Kind          string `json:"kind"`
-	Strikes       int    `json:"strikes"`
+	AuthID     string `json:"auth_id"`
+	Provider   string `json:"provider"`
+	Label      string `json:"label,omitempty"`
+	StatusCode int    `json:"status_code"`
+	Message    string `json:"message,omitempty"`
+	Kind       string `json:"kind"`
+	Strikes    int    `json:"strikes"`
+	// Tier is which probe produced this failure: 1 is the cheap authorization
+	// check, 2 the real generation call. It is the field that tells a rejection a
+	// cheap probe would also have caught from one only the deep probe could see.
+	Tier          int    `json:"tier"`
 	CooldownUntil string `json:"cooldown_until,omitempty"`
 	// ForbiddenType is the 403 subtype ("validation" or "violation") when the
 	// provider could read one out of the body, empty otherwise.
@@ -162,6 +170,103 @@ func (h *Handler) ensureSelfTestLoop() {
 	h.authManager.StartCredentialSelfTest(h.authManager.CredentialSelfTestOptions())
 }
 
+// DownloadCredentialSelfTestReport returns the last completed run as a file.
+//
+// It exists because a large pool's report is too big to read in a dialog: the
+// verdict table and the failure list are what an operator needs to work through
+// the dead credentials one by one, and 400 failures is not something a panel can
+// show usefully.
+//
+// The download carries more than the status endpoint does. The status answer is
+// polled once a second, so it is kept small; this one is fetched once and can
+// afford the whole failure list, along with a summary and per-verdict breakdown
+// that make the file self-explanatory when it is opened on its own.
+func (h *Handler) DownloadCredentialSelfTestReport(c *gin.Context) {
+	if h == nil || h.authManager == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "auth manager unavailable"})
+		return
+	}
+	report := h.authManager.LastCredentialSelfTestReport()
+	if report == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "no completed credential self-test run"})
+		return
+	}
+
+	export := credentialSelfTestExport{
+		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+		Report:      buildCredentialSelfTestResponse(report),
+		ByKind:      credentialSelfTestKindBreakdown(report.Failures),
+		ByForbidden: credentialSelfTestForbiddenBreakdown(report.Failures),
+	}
+	// Marshal through the same struct the API uses, then re-indent, so the file
+	// and the endpoint can never disagree about the field names.
+	raw, errMarshal := json.Marshal(export)
+	if errMarshal != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to encode report"})
+		return
+	}
+	var buf bytes.Buffer
+	if errIndent := json.Indent(&buf, raw, "", "  "); errIndent != nil {
+		buf.Write(raw)
+	}
+
+	name := fmt.Sprintf("credential-selftest-%s.json", report.StartedAt.UTC().Format("20060102-150405"))
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", name))
+	c.Data(http.StatusOK, "application/json; charset=utf-8", buf.Bytes())
+}
+
+// credentialSelfTestExport is the downloaded document. It wraps the report rather
+// than being it, so the summary fields can be added without changing the shape
+// the status endpoint promises.
+type credentialSelfTestExport struct {
+	GeneratedAt string                     `json:"generated_at"`
+	Report      credentialSelfTestResponse `json:"report"`
+	// ByKind and ByForbidden answer the questions an operator asks of a failure
+	// list before reading any of it: how many of each verdict, and for 403s, how
+	// many are the recoverable validation kind rather than a real ban.
+	ByKind      map[string]int `json:"failures_by_kind"`
+	ByForbidden map[string]int `json:"failures_by_forbidden_type,omitempty"`
+}
+
+// credentialSelfTestKindBreakdown counts failures by verdict kind. A failure list
+// is read to decide what to do about each credential, and that starts with how
+// many of each kind there are.
+func credentialSelfTestKindBreakdown(failures []coreauth.SelfTestFailure) map[string]int {
+	counts := make(map[string]int, 3)
+	for _, failure := range failures {
+		kind := string(failure.Kind)
+		if kind == "" {
+			kind = "unknown"
+		}
+		counts[kind]++
+	}
+	return counts
+}
+
+// credentialSelfTestForbiddenBreakdown counts 403 failures by the subtype the
+// executor read from the body. The distinction is the whole point of the 403
+// triage: "validation" means the account owner can still clear it, and a ban does
+// not. A 403 whose body carried no recognizable subtype is counted as
+// "unspecified" rather than folded into either, because guessing has already
+// proven to be the expensive mistake here.
+func credentialSelfTestForbiddenBreakdown(failures []coreauth.SelfTestFailure) map[string]int {
+	counts := make(map[string]int)
+	for _, failure := range failures {
+		if failure.StatusCode != http.StatusForbidden {
+			continue
+		}
+		subtype := strings.TrimSpace(failure.ForbiddenType)
+		if subtype == "" {
+			subtype = "unspecified"
+		}
+		counts[subtype]++
+	}
+	if len(counts) == 0 {
+		return nil
+	}
+	return counts
+}
+
 func buildCredentialSelfTestResponse(report *coreauth.SelfTestReport) credentialSelfTestResponse {
 	response := credentialSelfTestResponse{
 		StartedAt:      report.StartedAt.UTC().Format(time.RFC3339),
@@ -217,6 +322,7 @@ func buildCredentialSelfTestFailures(failures []coreauth.SelfTestFailure) []cred
 			Message:       failure.Message,
 			Kind:          string(failure.Kind),
 			Strikes:       failure.Strikes,
+			Tier:          int(failure.Tier),
 			ForbiddenType: failure.ForbiddenType,
 			ValidationURL: failure.ValidationURL,
 		}
