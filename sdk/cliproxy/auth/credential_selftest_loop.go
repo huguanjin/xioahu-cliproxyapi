@@ -19,7 +19,11 @@ import (
 // instead of re-probing the whole pool at once.
 type credentialSelfTestLoop struct {
 	manager *Manager
-	options SelfTestOptions
+	// optionsValue holds the SelfTestOptions this loop is using. It is atomic
+	// because a config reload can rewrite it while probe goroutines are reading
+	// it: two of those readers already hold mu, so guarding this with the same
+	// mutex would deadlock rather than protect anything.
+	optionsValue atomic.Value // of SelfTestOptions
 
 	// ctx is the loop's lifetime, used to give background runs something to
 	// cancel against without tying them to the request that triggered them.
@@ -39,6 +43,21 @@ type credentialSelfTestLoop struct {
 	// size of a production deployment takes hours to sweep, so the run can no
 	// longer be reported only once it finishes.
 	progress *SelfTestProgress
+}
+
+// options returns the options currently in force. A loop with nothing published
+// falls back to the defaults rather than reporting zeroes, so a partially built
+// loop still behaves.
+func (l *credentialSelfTestLoop) options() SelfTestOptions {
+	if l == nil {
+		return DefaultSelfTestOptions()
+	}
+	if value := l.optionsValue.Load(); value != nil {
+		if options, ok := value.(SelfTestOptions); ok {
+			return options
+		}
+	}
+	return DefaultSelfTestOptions()
 }
 
 // SelfTestProgress is the live state of a run that is still in flight. The counts
@@ -211,10 +230,10 @@ func (m *Manager) StartCredentialSelfTest(options SelfTestOptions) {
 
 	loop := &credentialSelfTestLoop{
 		manager:         m,
-		options:         options,
 		ctx:             ctx,
 		scheduleEnabled: options.Enabled,
 	}
+	loop.optionsValue.Store(options)
 	m.mu.Lock()
 	m.selfTestCancel = cancelCtx
 	m.selfTestLoop = loop
@@ -271,6 +290,49 @@ func (m *Manager) CredentialSelfTestScheduleEnabled() bool {
 	loop.mu.Lock()
 	defer loop.mu.Unlock()
 	return loop.scheduleEnabled
+}
+
+// PublishSelfTestOptions records the options a future loop should start with,
+// without starting one. It exists for the config reload path: options that arrive
+// while no loop is running still have to be waiting when one is next created,
+// otherwise the reload would be undone by the next manual run falling back to
+// defaults. It deliberately does not resurrect a loop, because a stopped loop may
+// have been stopped on purpose.
+func (m *Manager) PublishSelfTestOptions(options SelfTestOptions) {
+	if m == nil {
+		return
+	}
+	m.selfTestOptionValue.Store(options.Normalize())
+}
+
+// ApplySelfTestOptions updates the options a running loop uses, without
+// restarting it. It reports whether a loop was there to update.
+//
+// A restart would be the wrong shape here: it cancels the run in flight and drops
+// the last report, so an operator editing config.yaml while a sweep is under way
+// would lose the very report they were watching. Updating in place lets a changed
+// concurrency or cadence apply from the next tick onward.
+//
+// The schedule flag is deliberately not touched. Whether the schedule runs is
+// runtime state an operator toggles from the management API, and a config reload
+// must not silently switch it back on.
+func (m *Manager) ApplySelfTestOptions(options SelfTestOptions) bool {
+	if m == nil {
+		return false
+	}
+	options = options.Normalize()
+	// Published first so ApplyCredentialSelfTest sees the new thresholds even if
+	// the loop was torn down between the two steps below.
+	m.selfTestOptionValue.Store(options)
+
+	m.mu.Lock()
+	loop := m.selfTestLoop
+	m.mu.Unlock()
+	if loop == nil {
+		return false
+	}
+	loop.optionsValue.Store(options)
+	return true
 }
 
 // CredentialSelfTestRunning reports whether a self-test loop exists. The
@@ -368,13 +430,21 @@ func (m *Manager) RunCredentialSelfTestNow() bool {
 }
 
 func (l *credentialSelfTestLoop) run(ctx context.Context) {
-	ticker := time.NewTicker(l.options.Interval)
+	// A loop whose options are rewritten by a config reload must pick up a changed
+	// interval from the next tick rather than pinning the one it started with. The
+	// ticker cannot be resized in place, so it is rebuilt when the interval moves.
+	interval := l.options().Interval
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if next := l.options().Interval; next != interval && next > 0 {
+				interval = next
+				ticker.Reset(interval)
+			}
 			l.mu.Lock()
 			enabled := l.scheduleEnabled
 			l.mu.Unlock()
@@ -434,12 +504,16 @@ func (l *credentialSelfTestLoop) runOnce(ctx context.Context, manual bool, markP
 	}()
 
 	startedAt := time.Now()
+	// One snapshot for the whole sweep. A config reload during a run would
+	// otherwise be observed halfway through, and the report would describe a run
+	// that used two different concurrency settings.
+	options := l.options()
 	candidates, skipped := l.candidates(time.Now(), markProbed)
 	report := &SelfTestReport{
 		StartedAt:   startedAt,
 		Manual:      manual,
-		Concurrency: l.options.Concurrency,
-		Timeout:     l.options.Timeout,
+		Concurrency: options.Concurrency,
+		Timeout:     options.Timeout,
 		Skipped:     skipped,
 	}
 
@@ -447,13 +521,13 @@ func (l *credentialSelfTestLoop) runOnce(ctx context.Context, manual bool, markP
 	l.progress = &SelfTestProgress{
 		StartedAt:   startedAt,
 		Manual:      manual,
-		Concurrency: l.options.Concurrency,
+		Concurrency: options.Concurrency,
 		Total:       len(candidates),
 	}
 	l.mu.Unlock()
 
 	results := make(chan SelfTestFailure, len(candidates))
-	limit := l.options.Concurrency
+	limit := options.Concurrency
 	if limit <= 0 {
 		limit = 1
 	}
@@ -484,7 +558,7 @@ func (l *credentialSelfTestLoop) runOnce(ctx context.Context, manual bool, markP
 			default:
 				healthy.Add(1)
 			}
-			l.noteProgress(auth, failure, outcome)
+			l.noteProgress(auth, failure, outcome, options)
 		}(auth)
 	}
 	waitGroup.Wait()
@@ -503,7 +577,7 @@ func (l *credentialSelfTestLoop) runOnce(ctx context.Context, manual bool, markP
 			if failure.quotaExhausted() {
 				report.Verdict.QuotaExhausted++
 			}
-			if failure.Strikes >= l.options.DeterministicFailureThreshold {
+			if failure.Strikes >= options.DeterministicFailureThreshold {
 				report.Verdict.Escalated++
 			}
 		case SelfTestFailureValidation:
@@ -552,7 +626,12 @@ func (l *credentialSelfTestLoop) finishProgress(report *SelfTestReport) {
 // noteProgress folds one landed probe into the live progress view, tallied the
 // same way the finished report tallies it so the running numbers and the final
 // report agree.
-func (l *credentialSelfTestLoop) noteProgress(auth *Auth, failure SelfTestFailure, outcome selfTestOutcome) {
+//
+// It takes the sweep's own options rather than reading the loop's current ones:
+// the live view and the final report must classify the same probe identically, and
+// a config reload landing mid-sweep would otherwise have the two disagree about
+// which failures were escalated.
+func (l *credentialSelfTestLoop) noteProgress(auth *Auth, failure SelfTestFailure, outcome selfTestOutcome, options SelfTestOptions) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	progress := l.progress
@@ -570,7 +649,7 @@ func (l *credentialSelfTestLoop) noteProgress(auth *Auth, failure SelfTestFailur
 		if failure.quotaExhausted() {
 			progress.Verdict.QuotaExhausted++
 		}
-		if failure.Strikes >= l.options.DeterministicFailureThreshold {
+		if failure.Strikes >= options.DeterministicFailureThreshold {
 			progress.Verdict.Escalated++
 		}
 	case failure.Kind == SelfTestFailureValidation:
@@ -646,7 +725,7 @@ func (l *credentialSelfTestLoop) stampProbed(candidates []*Auth, now time.Time) 
 			continue
 		}
 		state := auth.SelfTestState()
-		state.NextProbeAt = now.Add(l.options.PerCredentialPeriod)
+		state.NextProbeAt = now.Add(l.options().PerCredentialPeriod)
 		auth.SetSelfTestState(state)
 		_ = l.manager.persist(context.Background(), auth)
 	}
@@ -710,7 +789,7 @@ func (l *credentialSelfTestLoop) probeOne(parent context.Context, auth *Auth) (S
 		// on a timer; skip it rather than guessing at a probe.
 		return SelfTestFailure{}, selfTestOutcomeNotProbed
 	}
-	ctx, cancel := context.WithTimeout(parent, l.options.Timeout)
+	ctx, cancel := context.WithTimeout(parent, l.options().Timeout)
 	defer cancel()
 
 	result, errProbe := tester.SelfTestCredential(ctx, auth)
@@ -801,7 +880,7 @@ func (l *credentialSelfTestLoop) applyProbeResult(ctx context.Context, result Cr
 //     quota runs out between recoveries is still found without paying for a real
 //     generation call on every healthy credential every sweep.
 func (l *credentialSelfTestLoop) deepProbe(ctx context.Context, tester CredentialSelfTester, auth *Auth) (CredentialSelfTestResult, bool) {
-	options := l.options
+	options := l.options()
 	generator, ok := tester.(CredentialGenerationSelfTester)
 	if !ok || !options.DeepProbeEnabled {
 		return CredentialSelfTestResult{}, false

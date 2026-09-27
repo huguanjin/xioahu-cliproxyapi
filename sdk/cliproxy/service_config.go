@@ -188,8 +188,35 @@ func (s *Service) applyConfigRuntime(ctx context.Context, commit configCommit, s
 	if errContext := ctx.Err(); errContext != nil {
 		return false
 	}
+	s.applySelfTestOptions(commit.cfg)
+	if errContext := ctx.Err(); errContext != nil {
+		return false
+	}
 	s.syncPluginModelRuntime(registrationCtx)
 	return ctx.Err() == nil
+}
+
+// applySelfTestOptions pushes the reloaded self-test block onto the running loop.
+//
+// Without this the loop would keep whatever it started with: config.yaml is
+// reloaded on every edit, so an operator raising the probe concurrency or moving a
+// cadence would see the change accepted, logged, and silently ignored until the
+// process restarted.
+//
+// The loop's schedule toggle is left alone. That is runtime state an operator
+// controls from the management panel, and a reload must not switch it back on.
+func (s *Service) applySelfTestOptions(cfg *config.Config) {
+	if s == nil || s.coreManager == nil || cfg == nil {
+		return
+	}
+	options := selfTestOptionsFromConfig(cfg)
+	if s.coreManager.ApplySelfTestOptions(options) {
+		log.Infof("credential self-test settings reloaded (concurrency=%d timeout=%s)", options.Concurrency, options.Timeout)
+		return
+	}
+	// No loop to update. Starting one here would resurrect a loop an embedder
+	// deliberately stopped, so the options are only published for the next start.
+	s.coreManager.PublishSelfTestOptions(options)
 }
 
 func (s *Service) applyManagerConfig(ctx context.Context, commit configCommit) bool {

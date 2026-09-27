@@ -244,15 +244,12 @@ func TestCredentialSelfTestLoopCandidatesRespectPeriod(t *testing.T) {
 			t.Fatalf("Register returned error: %v", errRegister)
 		}
 	}
-	loop := &credentialSelfTestLoop{
-		manager: manager,
-		options: SelfTestOptions{
-			Interval:            time.Minute,
-			PerCredentialPeriod: time.Hour,
-			Timeout:             time.Second,
-			Concurrency:         2,
-		},
-	}
+	loop := newSelfTestLoopForTest(manager, SelfTestOptions{
+		Interval:            time.Minute,
+		PerCredentialPeriod: time.Hour,
+		Timeout:             time.Second,
+		Concurrency:         2,
+	})
 
 	first, skipped := loop.candidates(time.Now(), true)
 	if len(first) != 2 {
@@ -280,15 +277,12 @@ func TestCredentialSelfTestLoopCandidatesBypassesPeriodOnManualRun(t *testing.T)
 	}); errRegister != nil {
 		t.Fatalf("Register returned error: %v", errRegister)
 	}
-	loop := &credentialSelfTestLoop{
-		manager: manager,
-		options: SelfTestOptions{
-			Interval:            time.Minute,
-			PerCredentialPeriod: time.Hour,
-			Timeout:             time.Second,
-			Concurrency:         2,
-		},
-	}
+	loop := newSelfTestLoopForTest(manager, SelfTestOptions{
+		Interval:            time.Minute,
+		PerCredentialPeriod: time.Hour,
+		Timeout:             time.Second,
+		Concurrency:         2,
+	})
 	// Give the credential a cadence far in the future; a manual run must ignore it.
 	loop.candidates(time.Now(), true)
 
@@ -446,4 +440,147 @@ func TestCredentialSelfTestLoopSurvivesItsStarterContext(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("the run never produced a report")
+}
+
+// A config reload must reach a loop that is already running. Before this, the
+// options were fixed at construction: raising probe concurrency in config.yaml was
+// accepted, logged, and then ignored until the process restarted, so an operator
+// tuning a long sweep could not tell whether their change had taken effect.
+func TestApplySelfTestOptionsUpdatesRunningLoop(t *testing.T) {
+	manager := NewManager(nil, nil, nil)
+	manager.RegisterExecutor(stubExecutor{id: "antigravity"})
+
+	manager.StartCredentialSelfTest(SelfTestOptions{
+		Interval:            time.Minute,
+		PerCredentialPeriod: time.Minute,
+		Timeout:             time.Second,
+		Concurrency:         4,
+	})
+	defer manager.StopCredentialSelfTest()
+
+	if got := manager.CredentialSelfTestOptions().Concurrency; got != 4 {
+		t.Fatalf("before reload concurrency = %d, want 4", got)
+	}
+	if !manager.ApplySelfTestOptions(SelfTestOptions{
+		Interval:            time.Minute,
+		PerCredentialPeriod: time.Minute,
+		Timeout:             time.Second,
+		Concurrency:         32,
+	}) {
+		t.Fatal("ApplySelfTestOptions reported no loop to update")
+	}
+	if got := manager.CredentialSelfTestOptions().Concurrency; got != 32 {
+		t.Fatalf("after reload concurrency = %d, want 32", got)
+	}
+}
+
+// The schedule toggle is runtime state, not configuration. An operator who turned
+// the schedule off must not have it switched back on by an unrelated config edit.
+func TestApplySelfTestOptionsLeavesScheduleAlone(t *testing.T) {
+	manager := NewManager(nil, nil, nil)
+	manager.RegisterExecutor(stubExecutor{id: "antigravity"})
+
+	manager.StartCredentialSelfTest(SelfTestOptions{
+		Enabled:             false,
+		Interval:            time.Minute,
+		PerCredentialPeriod: time.Minute,
+		Timeout:             time.Second,
+		Concurrency:         4,
+	})
+	defer manager.StopCredentialSelfTest()
+	if manager.CredentialSelfTestScheduleEnabled() {
+		t.Fatal("the loop must start with the schedule off when the option says so")
+	}
+
+	// A reload that turns the schedule on in YAML must not flip the live toggle.
+	manager.ApplySelfTestOptions(SelfTestOptions{
+		Enabled:             true,
+		Interval:            time.Minute,
+		PerCredentialPeriod: time.Minute,
+		Timeout:             time.Second,
+		Concurrency:         4,
+	})
+	if manager.CredentialSelfTestScheduleEnabled() {
+		t.Fatal("a config reload must not switch the schedule on behind the operator")
+	}
+}
+
+// Options arriving while no loop exists must still be waiting when one is created,
+// otherwise the reload would be undone by the next manual run falling back to
+// defaults.
+func TestPublishSelfTestOptionsSurvivesUntilLoopStarts(t *testing.T) {
+	manager := NewManager(nil, nil, nil)
+	manager.RegisterExecutor(stubExecutor{id: "antigravity"})
+
+	manager.PublishSelfTestOptions(SelfTestOptions{
+		Interval:            time.Minute,
+		PerCredentialPeriod: time.Minute,
+		Timeout:             time.Second,
+		Concurrency:         16,
+	})
+	if manager.CredentialSelfTestRunning() {
+		t.Fatal("publishing options must not start a loop")
+	}
+	if got := manager.CredentialSelfTestOptions().Concurrency; got != 16 {
+		t.Fatalf("published concurrency = %d, want 16", got)
+	}
+
+	// The management handler starts the loop from exactly these options.
+	manager.StartCredentialSelfTest(manager.CredentialSelfTestOptions())
+	defer manager.StopCredentialSelfTest()
+	if got := manager.CredentialSelfTestOptions().Concurrency; got != 16 {
+		t.Fatalf("a loop started from the published options got concurrency %d, want 16", got)
+	}
+}
+
+// The loop's options are read by probe goroutines while a reload rewrites them, so
+// the access must be race-free. Run with -race to make this meaningful.
+func TestApplySelfTestOptionsIsRaceFree(t *testing.T) {
+	manager := NewManager(nil, nil, nil)
+	manager.RegisterExecutor(stubExecutor{id: "antigravity"})
+	for i := 0; i < 8; i++ {
+		if _, errRegister := manager.Register(WithSkipPersist(context.Background()), &Auth{
+			ID:       "auth-" + strconv.Itoa(i),
+			Provider: "antigravity",
+			Status:   StatusActive,
+		}); errRegister != nil {
+			t.Fatalf("Register returned error: %v", errRegister)
+		}
+	}
+
+	manager.StartCredentialSelfTest(SelfTestOptions{
+		Interval:            time.Minute,
+		PerCredentialPeriod: time.Millisecond,
+		Timeout:             time.Second,
+		Concurrency:         4,
+	})
+	defer manager.StopCredentialSelfTest()
+	manager.RunCredentialSelfTestNow()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 200; i++ {
+			manager.ApplySelfTestOptions(SelfTestOptions{
+				Interval:            time.Minute,
+				PerCredentialPeriod: time.Millisecond,
+				Timeout:             time.Second,
+				Concurrency:         4 + i%8,
+			})
+		}
+	}()
+	for i := 0; i < 200; i++ {
+		_ = manager.CredentialSelfTestOptions()
+		_ = manager.CredentialSelfTestScheduleEnabled()
+	}
+	<-done
+}
+
+// newSelfTestLoopForTest builds a loop the way StartCredentialSelfTest does,
+// including publishing its options. Tests that drive loop methods directly need
+// this because the options now live in an atomic rather than a plain field.
+func newSelfTestLoopForTest(manager *Manager, options SelfTestOptions) *credentialSelfTestLoop {
+	loop := &credentialSelfTestLoop{manager: manager, ctx: context.Background()}
+	loop.optionsValue.Store(options.Normalize())
+	return loop
 }
