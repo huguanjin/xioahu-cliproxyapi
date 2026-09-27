@@ -1302,7 +1302,15 @@
     "weekday_wed": "Ср",
     "weekday_thu": "Чт",
     "weekday_fri": "Пт",
-    "weekday_sat": "Сб"
+    "weekday_sat": "Сб",
+    "availability_filter_label": "Доступность",
+    "availability_filter_all": "Все",
+    "availability_filter_available": "Есть квота",
+    "availability_filter_exhausted": "Квота исчерпана",
+    "availability_filter_failed": "Ошибка запроса",
+    "availability_filter_unloaded": "Не запрошено",
+    "availability_filter_empty_title": "Нет учётных данных по этому фильтру",
+    "availability_filter_empty_desc": "Выберите другой фильтр доступности или загрузите квоту для ещё не запрошенных учётных данных."
   },
   "plugin_management": {
     "title": "Управление плагинами",

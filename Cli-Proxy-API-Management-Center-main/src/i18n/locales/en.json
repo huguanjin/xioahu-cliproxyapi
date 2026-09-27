@@ -1315,7 +1315,15 @@
     "weekday_wed": "Wed",
     "weekday_thu": "Thu",
     "weekday_fri": "Fri",
-    "weekday_sat": "Sat"
+    "weekday_sat": "Sat",
+    "availability_filter_label": "Availability",
+    "availability_filter_all": "All",
+    "availability_filter_available": "Has quota",
+    "availability_filter_exhausted": "Quota spent",
+    "availability_filter_failed": "Fetch failed",
+    "availability_filter_unloaded": "Not queried",
+    "availability_filter_empty_title": "No credential matches this filter",
+    "availability_filter_empty_desc": "Try another availability filter, or load the quota for the credentials you have not queried yet."
   },
   "plugin_management": {
     "title": "Plugin Management",

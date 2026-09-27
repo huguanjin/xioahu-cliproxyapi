@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { authFilesApi } from '@/services/api';
+import { downloadBlob } from '@/utils/download';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Input } from '@/components/ui/Input';
@@ -38,6 +39,13 @@ import {
   type QuotaSortMode,
   type QuotaTabId,
 } from './constants';
+import {
+  buildAvailabilityCounts,
+  filterEntriesByAvailability,
+  isQuotaAvailabilityFilter,
+  QUOTA_AVAILABILITY_FILTERS,
+  type QuotaAvailabilityFilter,
+} from './availability';
 import {
   buildTabCounts,
   classifyQuotaFiles,
@@ -76,6 +84,9 @@ export function QuotaPage() {
   const [tab, setTab] = useState<QuotaTabId>(() => readQuotaUiState()?.tab ?? 'all');
   const [sortMode, setSortMode] = useState<QuotaSortMode>(
     () => readQuotaUiState()?.sortMode ?? 'default'
+  );
+  const [availabilityFilter, setAvailabilityFilter] = useState<QuotaAvailabilityFilter>(
+    () => readQuotaUiState()?.availabilityFilter ?? 'all'
   );
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
@@ -147,10 +158,21 @@ export function QuotaPage() {
   const wildcardSearch = useMemo(() => buildWildcardSearch(normalizedSearch), [normalizedSearch]);
 
   // tab 与搜索词依次收窄，下游（排序/分页/空态/批量条）只认这一个结果集。
-  const filteredEntries = useMemo(
+  const scopedEntries = useMemo(
     () =>
       filterEntriesBySearch(filterEntriesByTab(entries, tab), normalizedSearch, wildcardSearch),
     [entries, tab, normalizedSearch, wildcardSearch]
+  );
+
+  // 可用性再收窄一层。计数建立在 scopedEntries（已过 tab/搜索）之上，
+  // 所以每个数字描述的都是它正在筛选的那个列表；'all' 就是列表自身的大小。
+  const availabilityCounts = useMemo(
+    () => buildAvailabilityCounts(scopedEntries, getQuota),
+    [scopedEntries, getQuota]
+  );
+  const filteredEntries = useMemo(
+    () => filterEntriesByAvailability(scopedEntries, availabilityFilter, getQuota),
+    [scopedEntries, availabilityFilter, getQuota]
   );
 
   const resolveNextRecovery = useCallback(
@@ -180,6 +202,13 @@ export function QuotaPage() {
     writeQuotaUiState({ sortMode: next as QuotaSortMode });
   }, []);
 
+  const handleAvailabilityFilterChange = useCallback((next: string) => {
+    if (!isQuotaAvailabilityFilter(next)) return;
+    setAvailabilityFilter(next);
+    setPage(1);
+    writeQuotaUiState({ availabilityFilter: next });
+  }, []);
+
   // 搜索词不入 sessionStorage：额度页是「点开即看」的巡检页，
   // 残留的关键字会让刷新后的空网格看起来像凭证丢了。
   const handleSearchChange = useCallback((next: string) => {
@@ -196,6 +225,16 @@ export function QuotaPage() {
     () =>
       QUOTA_SORT_MODES.map((mode) => ({ value: mode, label: t(`quota_management.sort_${mode}`) })),
     [t]
+  );
+
+  // 标签带计数，让「有多少个取不到额度」在点开筛选前就能看见。
+  const availabilityOptions = useMemo(
+    () =>
+      QUOTA_AVAILABILITY_FILTERS.map((filter) => ({
+        value: filter,
+        label: `${t(`quota_management.availability_filter_${filter}`)} (${availabilityCounts[filter]})`,
+      })),
+    [t, availabilityCounts]
   );
 
   const { loadedCount, attentionCount } = useMemo(() => {
@@ -311,6 +350,38 @@ export function QuotaPage() {
     });
   }, [entries, quotaByType]);
 
+  // 批量下载走客户端的顺序循环：后端只有单凭证下载端点
+  // （/auth-files/download?name=），没有 zip 端点，所以每个文件是一次独立请求。
+  // 与认证文件页 batchDownload 同一实现，行为一致。
+  const handleBatchDownload = useCallback(async () => {
+    const names = Array.from(selectedFiles);
+    if (names.length === 0) return;
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const name of names) {
+      try {
+        const blob = await authFilesApi.download(name);
+        downloadBlob({ filename: name, blob });
+        successCount++;
+      } catch {
+        failCount++;
+      }
+    }
+
+    if (failCount === 0) {
+      showNotification(t('auth_files.batch_download_success', { count: successCount }), 'success');
+    } else {
+      showNotification(
+        t('auth_files.batch_download_partial', { success: successCount, failed: failCount }),
+        'warning'
+      );
+    }
+
+    deselectAll();
+  }, [deselectAll, selectedFiles, showNotification, t]);
+
   const handleBatchDelete = useCallback(() => {
     const names = Array.from(selectedFiles);
     if (names.length === 0) return;
@@ -404,9 +475,14 @@ export function QuotaPage() {
   /* ---------- 渲染 ---------- */
 
   const hasSearch = normalizedSearch.length > 0;
-  // 空态分因：搜索无命中 ≠ 本就没有可查额度的凭证，两者文案与出口都不同。
+  // 空态分因：搜索无命中 ≠ 可用性筛选无命中 ≠ 本就没有可查额度的凭证，
+  // 三者文案与出口都不同。
   const isEmpty = !loading && filteredEntries.length === 0;
   const isSearchEmpty = isEmpty && hasSearch;
+  // 可用性空态只在「确实有候选被筛掉」时成立：tab 本身就空时该说的是
+  // 「没有可查额度的凭证」，而不是「筛掉了」。
+  const isAvailabilityEmpty =
+    isEmpty && !hasSearch && availabilityFilter !== 'all' && scopedEntries.length > 0;
 
   return (
     <div className={styles.page} ref={revealRef}>
@@ -452,6 +528,15 @@ export function QuotaPage() {
                 size="sm"
               />
             </div>
+            <div className={styles.sort}>
+              <Select
+                value={availabilityFilter}
+                options={availabilityOptions}
+                onChange={handleAvailabilityFilterChange}
+                ariaLabel={t('quota_management.availability_filter_label')}
+                size="sm"
+              />
+            </div>
           </div>
         </div>
 
@@ -474,6 +559,20 @@ export function QuotaPage() {
             action={
               <Button variant="secondary" size="sm" onClick={clearSearch}>
                 {t('quota_management.search_clear')}
+              </Button>
+            }
+          />
+        ) : isAvailabilityEmpty ? (
+          <EmptyState
+            title={t('quota_management.availability_filter_empty_title')}
+            description={t('quota_management.availability_filter_empty_desc')}
+            action={
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => handleAvailabilityFilterChange('all')}
+              >
+                {t('quota_management.availability_filter_all')}
               </Button>
             }
           />
@@ -563,6 +662,7 @@ export function QuotaPage() {
         onSelectFiltered={selectFiltered}
         onInvertPage={invertPage}
         onDeselectAll={deselectAll}
+        onDownload={() => void handleBatchDownload()}
         onDelete={handleBatchDelete}
       />
     </div>

@@ -1315,7 +1315,15 @@
     "weekday_wed": "三",
     "weekday_thu": "四",
     "weekday_fri": "五",
-    "weekday_sat": "六"
+    "weekday_sat": "六",
+    "availability_filter_label": "可用性",
+    "availability_filter_all": "全部",
+    "availability_filter_available": "有配额",
+    "availability_filter_exhausted": "配额耗尽",
+    "availability_filter_failed": "获取失败",
+    "availability_filter_unloaded": "未查询",
+    "availability_filter_empty_title": "没有符合该筛选的凭证",
+    "availability_filter_empty_desc": "换一个可用性筛选，或先把尚未查询的凭证额度加载出来。"
   },
   "plugin_management": {
     "title": "插件管理",

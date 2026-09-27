@@ -84,6 +84,9 @@
   .controls {
     flex: 0 0 auto;
     justify-content: space-between;
+    /* 窄屏下搜索框 + 两个下拉（排序/可用性）放不进一行；让 Select 折到第二行，
+       而不是把搜索框挤到 min-width 以下或横向溢出。 */
+    flex-wrap: wrap;
   }
 
   .search {
@@ -93,6 +96,9 @@
 
   .sort {
     width: auto;
+    /* 折行时两个下拉各占一半，避免长短不一看起来像错位。 */
+    flex: 1 1 auto;
+    min-width: 0;
   }
 }
 

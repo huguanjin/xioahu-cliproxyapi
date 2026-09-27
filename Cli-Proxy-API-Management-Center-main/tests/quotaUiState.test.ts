@@ -46,21 +46,37 @@ afterAll(() => {
 });
 
 describe('quota ui state', () => {
-  test('round-trips both preferences', () => {
-    writeQuotaUiState({ tab: 'codex', sortMode: 'soonest' });
-    expect(readQuotaUiState()).toEqual({ tab: 'codex', sortMode: 'soonest' });
+  test('round-trips every preference', () => {
+    writeQuotaUiState({ tab: 'codex', sortMode: 'soonest', availabilityFilter: 'exhausted' });
+    expect(readQuotaUiState()).toEqual({
+      tab: 'codex',
+      sortMode: 'soonest',
+      availabilityFilter: 'exhausted',
+    });
   });
 
-  test('writing one preference preserves the other', () => {
+  test('writing one preference preserves the others', () => {
     writeQuotaUiState({ sortMode: 'soonest' });
     writeQuotaUiState({ tab: 'kimi' });
+    writeQuotaUiState({ availabilityFilter: 'failed' });
 
-    expect(readQuotaUiState()).toEqual({ tab: 'kimi', sortMode: 'soonest' });
+    expect(readQuotaUiState()).toEqual({
+      tab: 'kimi',
+      sortMode: 'soonest',
+      availabilityFilter: 'failed',
+    });
   });
 
   test('rejects values that are not part of the current contract', () => {
-    storage.setItem(KEY, JSON.stringify({ tab: 'not-a-tab', sortMode: 'by-vibes' }));
-    expect(readQuotaUiState()).toEqual({ tab: undefined, sortMode: undefined });
+    storage.setItem(
+      KEY,
+      JSON.stringify({ tab: 'not-a-tab', sortMode: 'by-vibes', availabilityFilter: 'maybe' })
+    );
+    expect(readQuotaUiState()).toEqual({
+      tab: undefined,
+      sortMode: undefined,
+      availabilityFilter: undefined,
+    });
   });
 
   test('survives absent, malformed, and non-object payloads', () => {
