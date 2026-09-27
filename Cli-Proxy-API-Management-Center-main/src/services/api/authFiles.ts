@@ -100,9 +100,30 @@ export type SelfTestReport = {
   failures?: SelfTestFailureEntry[];
 };
 
-/** 自检状态：定时开关 + 最近一次运行的报告。 */
+/** 一次运行进行中的实时进度（后端 credentialSelfTestProgress）。 */
+export type SelfTestProgress = {
+  started_at: string;
+  manual: boolean;
+  concurrency: number;
+  /** 本轮计划探测的凭证数。 */
+  total: number;
+  /** 已完成的探测数，健康与否都计入。 */
+  completed: number;
+  healthy: number;
+  cooling: number;
+  deterministic: number;
+  escalated: number;
+  transient: number;
+  /** 进行中已标记的失败（后端上限 200 条）。 */
+  failures?: SelfTestFailureEntry[];
+};
+
+/** 自检状态：定时开关 + 进行中的进度 + 最近一次运行的报告。 */
 export type SelfTestStatusResponse = {
   schedule_enabled: boolean;
+  /** 是否有运行正在进行。 */
+  running: boolean;
+  progress?: SelfTestProgress;
   last_report?: SelfTestReport;
 };
 
@@ -562,7 +583,8 @@ export const authFilesApi = {
   setSelfTestSchedule: (enabled: boolean) =>
     apiClient.patch<{ schedule_enabled: boolean }>('/credential-selftest', { enabled }),
 
-  runSelfTest: () => apiClient.post<SelfTestReport>('/credential-selftest/run', {}),
+  // 返回 202：本轮在后台运行，进度与结果都从 getSelfTestStatus 轮询
+  runSelfTest: () => apiClient.post<{ status: string }>('/credential-selftest/run', {}),
 
   // OAuth 排除模型
   async getOauthExcludedModels(): Promise<Record<string, string[]>> {

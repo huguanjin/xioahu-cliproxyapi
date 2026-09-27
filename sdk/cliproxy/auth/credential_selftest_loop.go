@@ -20,6 +20,10 @@ type credentialSelfTestLoop struct {
 	manager *Manager
 	options SelfTestOptions
 
+	// ctx is the loop's lifetime, used to give background runs something to
+	// cancel against without tying them to the request that triggered them.
+	ctx context.Context
+
 	// scheduleEnabled mirrors options.Enabled but can be toggled while running.
 	// The loop keeps ticking when the schedule is off so a manual trigger has a
 	// live loop to run on.
@@ -31,7 +35,39 @@ type credentialSelfTestLoop struct {
 	// running guards against overlapping manual runs; a second trigger while one
 	// run is in flight is refused rather than queued.
 	running bool
+	// progress is the live view of the run in flight, nil when idle. A pool the
+	// size of a production deployment takes hours to sweep, so the run can no
+	// longer be reported only once it finishes.
+	progress *SelfTestProgress
 }
+
+// SelfTestProgress is the live state of a run that is still in flight. The counts
+// grow as probes land, so a caller polling the status endpoint can show movement
+// instead of an indefinite spinner.
+type SelfTestProgress struct {
+	// StartedAt is when the run began.
+	StartedAt time.Time
+	// Manual records whether an operator triggered the run rather than the schedule.
+	Manual bool
+	// Concurrency is the setting the run is using.
+	Concurrency int
+	// Total is how many credentials this run will probe.
+	Total int
+	// Completed counts probes that have landed, healthy or not.
+	Completed int
+	// Verdict tallies completed probes. Healthy plus the failure kinds equals
+	// Completed, so a progress bar can be drawn from any pair.
+	Verdict SelfTestVerdictCounts
+	// Failures lists what the run has flagged so far, capped at
+	// SelfTestProgressFailureLimit so a run full of dead credentials cannot grow
+	// the status response without bound.
+	Failures []SelfTestFailure
+}
+
+// SelfTestProgressFailureLimit caps the failures carried by a live progress
+// snapshot. The finished report keeps every failure; only the in-flight view is
+// bounded, because it is serialised on every poll.
+const SelfTestProgressFailureLimit = 200
 
 // SelfTestReport summarises one completed self-test run.
 type SelfTestReport struct {
@@ -131,6 +167,7 @@ func (m *Manager) StartCredentialSelfTest(parent context.Context, options SelfTe
 	loop := &credentialSelfTestLoop{
 		manager:         m,
 		options:         options,
+		ctx:             ctx,
 		scheduleEnabled: options.Enabled,
 		lastProbed:      make(map[string]time.Time),
 	}
@@ -237,14 +274,10 @@ func (m *Manager) LastCredentialSelfTestReport() *SelfTestReport {
 	return &report
 }
 
-// RunCredentialSelfTestNow probes immediately, ignoring both the schedule and the
-// per-credential period. It returns the run's report, or nil if a run was already
-// in flight or the loop is not running.
-//
-// The per-credential period is deliberately bypassed: an operator pressing the
-// button is asking "what is true right now", and honouring the period would hand
-// back a report that mostly re-states the last scheduled run.
-func (m *Manager) RunCredentialSelfTestNow(parent context.Context) *SelfTestReport {
+// CredentialSelfTestProgress returns a snapshot of the run in flight, or nil when
+// no run is in progress. The run is long enough that the UI needs to show it
+// moving, so this is read on every status poll.
+func (m *Manager) CredentialSelfTestProgress() *SelfTestProgress {
 	if m == nil {
 		return nil
 	}
@@ -254,7 +287,40 @@ func (m *Manager) RunCredentialSelfTestNow(parent context.Context) *SelfTestRepo
 	if loop == nil {
 		return nil
 	}
-	return loop.runNow(parent)
+	loop.mu.Lock()
+	defer loop.mu.Unlock()
+	if loop.progress == nil {
+		return nil
+	}
+	// Copy: the loop mutates the original as probes land while the handler reads.
+	progress := *loop.progress
+	progress.Failures = append([]SelfTestFailure(nil), loop.progress.Failures...)
+	return &progress
+}
+
+// RunCredentialSelfTestNow starts a sweep in the background, ignoring both the
+// schedule and the per-credential period. It reports whether the run was
+// accepted; a run already in flight is refused rather than queued, and a missing
+// loop is refused too.
+//
+// The per-credential period is deliberately bypassed: an operator pressing the
+// button is asking "what is true right now", and honouring the period would hand
+// back a report that mostly re-states the last scheduled run.
+//
+// The run does not borrow the caller's context. A sweep over a production pool
+// takes far longer than an HTTP request may live, so inheriting it would have the
+// browser closing the tab kill the run. The loop's own lifetime governs instead.
+func (m *Manager) RunCredentialSelfTestNow() bool {
+	if m == nil {
+		return false
+	}
+	m.mu.Lock()
+	loop := m.selfTestLoop
+	m.mu.Unlock()
+	if loop == nil {
+		return false
+	}
+	return loop.runNow()
 }
 
 func (l *credentialSelfTestLoop) run(ctx context.Context) {
@@ -276,38 +342,50 @@ func (l *credentialSelfTestLoop) run(ctx context.Context) {
 	}
 }
 
-func (l *credentialSelfTestLoop) runNow(parent context.Context) *SelfTestReport {
+// runNow starts a manual sweep in the background. It reports whether the run was
+// accepted: a second trigger while one is in flight is refused rather than
+// queued. The sweep outlives the HTTP request that asked for it, so callers poll
+// CredentialSelfTestProgress rather than waiting on a return value.
+func (l *credentialSelfTestLoop) runNow() bool {
 	l.mu.Lock()
 	if l.running {
 		l.mu.Unlock()
-		return nil
+		return false
 	}
 	l.running = true
+	ctx := l.ctx
 	l.mu.Unlock()
-	// A manual run must not inherit the previous run's cancellation, so it gets
-	// its own bounded context derived from the caller's.
-	ctx, cancel := context.WithCancel(parent)
-	defer cancel()
-	return l.runOnce(ctx, true, false)
+
+	go func() {
+		// No parent context: see RunCredentialSelfTestNow. The loop's own cancel
+		// is the only thing that may stop a sweep already under way.
+		l.runOnce(ctx, true, false)
+	}()
+	return true
 }
 
 // runOnce performs one probe sweep and stores its report. It always clears the
 // running flag, including on a panic, so one bad probe cannot wedge the loop.
 func (l *credentialSelfTestLoop) runOnce(ctx context.Context, manual bool, markProbed bool) *SelfTestReport {
 	l.mu.Lock()
-	if l.running && !manual {
-		// A manual run is in flight; skip this tick rather than pile on.
-		l.mu.Unlock()
-		return nil
-	}
-	if manual {
+	if l.running {
+		if manual {
+			// runNow already claimed the flag for this run.
+			l.mu.Unlock()
+		} else {
+			// A manual run is in flight; skip this tick rather than pile on.
+			l.mu.Unlock()
+			return nil
+		}
+	} else {
 		l.running = true
+		l.mu.Unlock()
 	}
-	l.mu.Unlock()
 
 	defer func() {
 		l.mu.Lock()
 		l.running = false
+		l.progress = nil
 		l.mu.Unlock()
 	}()
 
@@ -320,6 +398,15 @@ func (l *credentialSelfTestLoop) runOnce(ctx context.Context, manual bool, markP
 		Timeout:     l.options.Timeout,
 		Skipped:     skipped,
 	}
+
+	l.mu.Lock()
+	l.progress = &SelfTestProgress{
+		StartedAt:   startedAt,
+		Manual:      manual,
+		Concurrency: l.options.Concurrency,
+		Total:       len(candidates),
+	}
+	l.mu.Unlock()
 
 	results := make(chan SelfTestFailure, len(candidates))
 	limit := l.options.Concurrency
@@ -339,9 +426,15 @@ func (l *credentialSelfTestLoop) runOnce(ctx context.Context, manual bool, markP
 		go func(auth *Auth) {
 			defer waitGroup.Done()
 			defer func() { <-semaphore }()
-			if failure, counted := l.probeOne(ctx, auth); counted {
+			failure, counted := l.probeOne(ctx, auth)
+			if counted {
 				results <- failure
+				l.noteProgress(auth, failure)
+				return
 			}
+			// A probe that reports nothing is still a completed probe, so the
+			// progress view has to count it or the bar stalls below 100%.
+			l.noteProgress(auth, SelfTestFailure{})
 		}(auth)
 	}
 	waitGroup.Wait()
@@ -370,6 +463,7 @@ func (l *credentialSelfTestLoop) runOnce(ctx context.Context, manual bool, markP
 		report.Verdict.Healthy = 0
 	}
 	report.FinishedAt = time.Now()
+	l.finishProgress(report)
 
 	l.mu.Lock()
 	l.lastReport = report
@@ -380,6 +474,60 @@ func (l *credentialSelfTestLoop) runOnce(ctx context.Context, manual bool, markP
 		report.Verdict.Deterministic, report.Verdict.Escalated, report.Verdict.Transient,
 		report.FinishedAt.Sub(report.StartedAt).Round(time.Millisecond))
 	return report
+}
+
+// finishProgress marks the live view complete before it is cleared, so a status
+// poll landing in the same instant as the final probe still sees the run at 100%
+// rather than at whatever count the previous poll caught.
+func (l *credentialSelfTestLoop) finishProgress(report *SelfTestReport) {
+	if report == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.progress == nil {
+		return
+	}
+	l.progress.Completed = report.Probed
+	l.progress.Total = report.Probed
+	l.progress.Verdict = report.Verdict
+}
+
+// noteProgress folds one landed probe into the live progress view. A zero
+// failure means the probe came back clean and only counts toward the completed
+// total; anything else is tallied the same way the finished report tallies it, so
+// the running numbers and the final report agree.
+func (l *credentialSelfTestLoop) noteProgress(auth *Auth, failure SelfTestFailure) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	progress := l.progress
+	if progress == nil {
+		// The run was torn down or replaced while this probe was in flight.
+		return
+	}
+	progress.Completed++
+	switch failure.Kind {
+	case SelfTestFailureDeterministic:
+		progress.Verdict.Deterministic++
+		progress.Verdict.Cooling++
+		if failure.Strikes >= l.options.DeterministicFailureThreshold {
+			progress.Verdict.Escalated++
+		}
+	case SelfTestFailureTransient:
+		progress.Verdict.Transient++
+	default:
+		progress.Verdict.Healthy++
+	}
+	if failure.Kind == "" {
+		return
+	}
+	if len(progress.Failures) >= SelfTestProgressFailureLimit {
+		return
+	}
+	if failure.Label == "" && auth != nil {
+		failure.Label = auth.Label
+	}
+	progress.Failures = append(progress.Failures, failure)
 }
 
 // candidates returns the credentials to probe and the number passed over.

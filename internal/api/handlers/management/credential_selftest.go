@@ -39,16 +39,39 @@ type credentialSelfTestFailureEntry struct {
 	CooldownUntil string `json:"cooldown_until,omitempty"`
 }
 
-// GetCredentialSelfTestStatus reports the schedule state, the running options
-// and the most recent completed run. It never probes: the UI polls this while a
-// run is in flight and after, so it must stay cheap.
+// credentialSelfTestProgress is the live view of a run still in flight. Total and
+// completed drive the progress bar; the verdict counts fill in behind it so the
+// operator sees dead credentials pile up before the run ends.
+type credentialSelfTestProgress struct {
+	StartedAt     string                           `json:"started_at"`
+	Manual        bool                             `json:"manual"`
+	Concurrency   int                              `json:"concurrency"`
+	Total         int                              `json:"total"`
+	Completed     int                              `json:"completed"`
+	Healthy       int                              `json:"healthy"`
+	Cooling       int                              `json:"cooling"`
+	Deterministic int                              `json:"deterministic"`
+	Escalated     int                              `json:"escalated"`
+	Transient     int                              `json:"transient"`
+	Failures      []credentialSelfTestFailureEntry `json:"failures,omitempty"`
+}
+
+// GetCredentialSelfTestStatus reports the schedule state, the running options,
+// the run in flight if there is one, and the most recent completed run. It never
+// probes: the UI polls this once a second while a run is in flight, so it must
+// stay cheap.
 func (h *Handler) GetCredentialSelfTestStatus(c *gin.Context) {
 	if h == nil || h.authManager == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "auth manager unavailable"})
 		return
 	}
+	progress := h.authManager.CredentialSelfTestProgress()
 	payload := gin.H{
 		"schedule_enabled": h.authManager.CredentialSelfTestScheduleEnabled(),
+		"running":          progress != nil,
+	}
+	if progress != nil {
+		payload["progress"] = buildCredentialSelfTestProgress(progress)
 	}
 	if report := h.authManager.LastCredentialSelfTestReport(); report != nil {
 		payload["last_report"] = buildCredentialSelfTestResponse(report)
@@ -84,12 +107,15 @@ func (h *Handler) PatchCredentialSelfTest(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"schedule_enabled": *body.Enabled})
 }
 
-// PostCredentialSelfTest runs one sweep immediately, ignoring the schedule and
-// the per-credential period, and returns the finished report.
+// PostCredentialSelfTest starts a sweep in the background and returns at once.
 //
-// The run is synchronous because the operator is watching for the answer; it
-// bypasses the per-credential period so a second press still probes. A run that
-// would overlap one already in flight is refused rather than queued.
+// The run is asynchronous because it is not bounded by an HTTP request: a pool of
+// a thousand-plus credentials takes far longer than any client will wait, and a
+// browser that gives up must not take the run down with it. The caller polls
+// GET /credential-selftest for progress and the finished report.
+//
+// The per-credential period is bypassed so a second press still probes. A run
+// that would overlap one already in flight is refused rather than queued.
 func (h *Handler) PostCredentialSelfTest(c *gin.Context) {
 	if h == nil || h.authManager == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "auth manager unavailable"})
@@ -99,12 +125,11 @@ func (h *Handler) PostCredentialSelfTest(c *gin.Context) {
 	// deliberately not consulted: the whole point of the manual trigger is to work
 	// while the schedule is off, and a fresh loop starts with the schedule off.
 	h.ensureSelfTestLoop(c.Request.Context())
-	report := h.authManager.RunCredentialSelfTestNow(c.Request.Context())
-	if report == nil {
+	if !h.authManager.RunCredentialSelfTestNow() {
 		c.JSON(http.StatusConflict, gin.H{"error": "a credential self-test run is already in progress"})
 		return
 	}
-	c.JSON(http.StatusOK, buildCredentialSelfTestResponse(report))
+	c.JSON(http.StatusAccepted, gin.H{"status": "started"})
 }
 
 // ensureSelfTestLoop starts the self-test loop when none is running, reusing the
@@ -132,8 +157,33 @@ func buildCredentialSelfTestResponse(report *coreauth.SelfTestReport) credential
 		Deterministic: report.Verdict.Deterministic,
 		Escalated:     report.Verdict.Escalated,
 		Transient:     report.Verdict.Transient,
+		Failures:      buildCredentialSelfTestFailures(report.Failures),
 	}
-	for _, failure := range report.Failures {
+	return response
+}
+
+func buildCredentialSelfTestProgress(progress *coreauth.SelfTestProgress) credentialSelfTestProgress {
+	return credentialSelfTestProgress{
+		StartedAt:     progress.StartedAt.UTC().Format(time.RFC3339),
+		Manual:        progress.Manual,
+		Concurrency:   progress.Concurrency,
+		Total:         progress.Total,
+		Completed:     progress.Completed,
+		Healthy:       progress.Verdict.Healthy,
+		Cooling:       progress.Verdict.Cooling,
+		Deterministic: progress.Verdict.Deterministic,
+		Escalated:     progress.Verdict.Escalated,
+		Transient:     progress.Verdict.Transient,
+		Failures:      buildCredentialSelfTestFailures(progress.Failures),
+	}
+}
+
+func buildCredentialSelfTestFailures(failures []coreauth.SelfTestFailure) []credentialSelfTestFailureEntry {
+	if len(failures) == 0 {
+		return nil
+	}
+	entries := make([]credentialSelfTestFailureEntry, 0, len(failures))
+	for _, failure := range failures {
 		entry := credentialSelfTestFailureEntry{
 			AuthID:     failure.AuthID,
 			Provider:   failure.Provider,
@@ -146,7 +196,7 @@ func buildCredentialSelfTestResponse(report *coreauth.SelfTestReport) credential
 		if !failure.CooldownUntil.IsZero() {
 			entry.CooldownUntil = failure.CooldownUntil.UTC().Format(time.RFC3339)
 		}
-		response.Failures = append(response.Failures, entry)
+		entries = append(entries, entry)
 	}
-	return response
+	return entries
 }

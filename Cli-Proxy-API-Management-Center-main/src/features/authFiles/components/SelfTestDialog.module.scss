@@ -38,6 +38,61 @@
   color: var(--text-secondary);
 }
 
+/* ---------- 运行进度 ---------- */
+
+.progressBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+}
+
+.progressHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.progressLabel {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.progressPercent {
+  font-size: 12px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--primary-color);
+}
+
+.progressTrack {
+  overflow: hidden;
+  height: 6px;
+  border-radius: $radius-full;
+  background: var(--bg-primary);
+}
+
+.progressBar {
+  height: 100%;
+  border-radius: $radius-full;
+  background: var(--primary-color);
+  transition: width var(--dur-hover, 200ms) var(--ease-out-strong, ease-out);
+}
+
+.progressMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
 /* ---------- 错误 ---------- */
 
 .errorBanner {
@@ -204,7 +259,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .failure,
-  .summaryCell {
+  .summaryCell,
+  .progressBar {
     transition: none;
   }
 }
