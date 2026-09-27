@@ -22,6 +22,12 @@ export type AuthFileFieldsPatch = {
   headers?: Record<string, string>;
   priority?: number;
   weight?: number | null;
+  /**
+   * 启用/停用。后端 `BatchPatchAuthFileFields` 接受并会落盘（写入凭证文件的
+   * `disabled` 字段），只是此前没在这里声明。批量停用走单请求，不要用逐条
+   * 的 `setStatus` —— 几百个凭证就是几百个请求。
+   */
+  disabled?: boolean;
   disable_cooling?: boolean;
   'disable-cooling'?: boolean;
   websockets?: boolean;
@@ -649,6 +655,25 @@ export const authFilesApi = {
   downloadText: async (name: string): Promise<string> => {
     const blob = await authFilesApi.download(name);
     return blob.text();
+  },
+
+  /**
+   * 批量下载凭证为一个 zip。走 POST 而非 GET：文件名列表就是请求体，
+   * 几百个名字远超 URL 长度上限。
+   *
+   * 服务端会在 zip 里附带 emails.txt（一行一个邮箱）。名字不合法或文件已
+   * 不存在时不会整体失败，而是记进 zip 内的 skipped.txt。
+   */
+  downloadArchive: async (
+    names: string[],
+    options?: { includeEmails?: boolean }
+  ): Promise<Blob> => {
+    const requestedNames = normalizeRequestedAuthFileNames(names);
+    const response = await apiClient.postRaw('/auth-files/download-archive', {
+      names: requestedNames,
+      include_emails: options?.includeEmails ?? true,
+    });
+    return response.data as Blob;
   },
 
   // 凭证自检（后端定时/手动批量测试）

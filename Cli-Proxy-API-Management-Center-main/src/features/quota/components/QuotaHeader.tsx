@@ -12,6 +12,7 @@ export type QuotaHeaderProps = {
   disableControls: boolean;
   onRefreshAll: () => void;
   onSelectFailed: () => void;
+  onOpenScan: () => void;
 };
 
 /**
@@ -30,6 +31,7 @@ export function QuotaHeader(props: QuotaHeaderProps) {
     disableControls,
     onRefreshAll,
     onSelectFailed,
+    onOpenScan,
   } = props;
   const { t } = useTranslation();
   // 批量结果陆续落地时，「已加载」是页面上唯一滚动的数字
@@ -76,6 +78,9 @@ export function QuotaHeader(props: QuotaHeaderProps) {
             {t('quota_management.select_failed')}
           </Button>
         )}
+        <Button variant="secondary" size="sm" onClick={onOpenScan} disabled={disableControls}>
+          {t('quota_management.scan_open')}
+        </Button>
         <button
           type="button"
           className={styles.primaryAction}

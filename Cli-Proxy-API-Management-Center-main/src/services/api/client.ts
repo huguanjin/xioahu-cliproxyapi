@@ -231,6 +231,20 @@ class ApiClient {
   }
 
   /**
+   * 发送 JSON 并取回原始响应（用于 POST 下载等场景）。
+   *
+   * 与 getRaw 成对：当下载的请求体太大、放不进 URL 时（例如一次几百个
+   * 文件名），只能用 POST 承载请求体，同时仍然需要拿到二进制响应。
+   */
+  async postRaw(
+    url: string,
+    data?: unknown,
+    config?: AxiosRequestConfig
+  ): Promise<AxiosResponse> {
+    return this.instance.post(url, data, config);
+  }
+
+  /**
    * 发送 FormData
    */
   async postForm<T = unknown>(

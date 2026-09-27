@@ -30,6 +30,7 @@ import { AntigravityQuotaSummary } from './components/AntigravityQuotaSummary';
 import { QuotaHeader } from './components/QuotaHeader';
 import { QuotaCard } from './components/QuotaCard';
 import { QuotaBatchActionBar } from './components/QuotaBatchActionBar';
+import { QuotaScanDialog } from './components/QuotaScanDialog';
 import { QuotaTimeline } from './components/QuotaTimeline';
 import {
   CARD_ENTRANCE_BUDGET_MS,
@@ -91,6 +92,7 @@ export function QuotaPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+  const [scanOpen, setScanOpen] = useState(false);
   // 页头 + tabs 的入场级联（标题 → meta → 动作 → tabs，级差 70ms）
   const revealRef = useRevealGroup<HTMLDivElement>();
 
@@ -494,6 +496,7 @@ export function QuotaPage() {
         disableControls={disableControls}
         onRefreshAll={handleRefreshAll}
         onSelectFailed={selectFailed}
+        onOpenScan={() => setScanOpen(true)}
       />
 
       <AntigravityQuotaSummary />
@@ -664,6 +667,15 @@ export function QuotaPage() {
         onDeselectAll={deselectAll}
         onDownload={() => void handleBatchDownload()}
         onDelete={handleBatchDelete}
+      />
+
+      {/* 巡检覆盖全部凭证（不是当前页），所以它的取数目标是 entries 而不是 pageItems。 */}
+      <QuotaScanDialog
+        open={scanOpen}
+        onClose={() => setScanOpen(false)}
+        entries={entries}
+        quotaFor={getQuota}
+        loadQuota={loadQuota}
       />
     </div>
   );
