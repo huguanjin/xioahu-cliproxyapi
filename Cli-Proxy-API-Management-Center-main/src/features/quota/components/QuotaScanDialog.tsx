@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -54,6 +54,22 @@ export function QuotaScanDialog({ open, onClose, entries, loadQuota }: QuotaScan
   // 重试轮数由操作者决定，0 是合法值。存字符串而不是数字：输入框清空时
   // 需要一个可表示的空态，立刻转成数字会让用户没法把 2 改成 10。
   const [retryInput, setRetryInput] = useState(String(DEFAULT_QUOTA_SCAN_TUNING.maxRetries));
+  // Mirrored into a ref, and handleStart reads the ref rather than the state.
+  //
+  // handleStart lives in a useCallback and runs for minutes, so anything it
+  // closes over is frozen at the render that created it. Reading retryInput
+  // there meant the number the operator typed was never the one the sweep used
+  // — it always ran the value captured before they touched it, with no error to
+  // show for it. The ref is written only from event handlers (the input and the
+  // start button), never during render, so React's refs-during-render rule
+  // holds; the alternative of adding retryInput to the dependency list would
+  // rebuild handleStart mid-sweep for a string only the input cares about.
+  const retryInputRef = useRef(String(DEFAULT_QUOTA_SCAN_TUNING.maxRetries));
+
+  const applyRetryInput = useCallback((value: string) => {
+    retryInputRef.current = value;
+    setRetryInput(value);
+  }, []);
 
   const { running, progress, run, cancel } = useQuotaScan(loadQuota);
 
@@ -78,9 +94,10 @@ export function QuotaScanDialog({ open, onClose, entries, loadQuota }: QuotaScan
     writeQuotaScanResult(null);
 
     // 收敛在提交时做一次，而不是每次按键：输入过程中允许暂时非法
-    // （清空、只输入一个负号），只在真正开始跑之前判定。
-    const retries = clampScanRetries(retryInput);
-    setRetryInput(String(retries));
+    // （清空、只输入一个负号），只在真正开始跑之前判定。经 ref 读取 ——
+    // 见 retryInputRef 的说明。
+    const retries = clampScanRetries(retryInputRef.current);
+    applyRetryInput(String(retries));
 
     const outcome = await run(entries, t as TFunction, {
       ...DEFAULT_QUOTA_SCAN_TUNING,
@@ -99,7 +116,7 @@ export function QuotaScanDialog({ open, onClose, entries, loadQuota }: QuotaScan
     setResult(next);
     setSelected(defaultSelection(next.failures));
     writeQuotaScanResult(next);
-  }, [disableControls, entries, run, t]);
+  }, [applyRetryInput, disableControls, entries, run, t]);
 
   const toggle = useCallback((name: string) => {
     setSelected((prev) => {
@@ -213,6 +230,21 @@ export function QuotaScanDialog({ open, onClose, entries, loadQuota }: QuotaScan
     writeQuotaScanResult(null);
   }, []);
 
+  /**
+   * 回到设置页（显示重试次数输入框），但不启动。
+   *
+   * The setting screen is the only place the retry count can be changed, so
+   * jumping straight from the finished state into another sweep would hide the
+   * one parameter worth checking before a run that hits the upstream a thousand
+   * times over. Going back to the form costs one click and keeps that choice in
+   * front of the operator.
+   */
+  const handleReconfigure = useCallback(() => {
+    setResult(null);
+    setSelected(new Set());
+    writeQuotaScanResult(null);
+  }, []);
+
   const total = progress.total;
   const percent = total > 0 ? Math.min(100, Math.round((progress.completed / total) * 100)) : 0;
   const retryPercent = retryPhasePercent({
@@ -288,12 +320,16 @@ export function QuotaScanDialog({ open, onClose, entries, loadQuota }: QuotaScan
         <>
           {/* 只要有结果，就必须同时给出「再扫一次」的出口。结果会持久化到
               sessionStorage，所以关掉再打开仍是完成态 —— 没有这个按钮，弹窗
-              就变成只能跑一次，唯一的出路是「清除结果」。 */}
+              就变成只能跑一次，唯一的出路是「清除结果」。
+
+              它回到设置页而不是直接开跑：完成态下没有重试次数输入框，直接
+              调 handleStart 会让「重新巡检」用上一次的参数静默重跑，操作者
+              根本没有机会改。回到设置页点是多一次点击，但那是看清楚再跑。 */}
           {result && (
             <Button
               variant="secondary"
               size="sm"
-              onClick={() => void handleStart()}
+              onClick={handleReconfigure}
               disabled={disableControls || entries.length === 0}
             >
               {t('quota_management.scan_rerun')}
@@ -399,7 +435,7 @@ export function QuotaScanDialog({ open, onClose, entries, loadQuota }: QuotaScan
               <Input
                 id="quota-scan-retries"
                 value={retryInput}
-                onChange={(event) => setRetryInput(event.target.value)}
+                onChange={(event) => applyRetryInput(event.target.value)}
                 type="number"
                 min={MIN_QUOTA_SCAN_RETRIES}
                 max={MAX_QUOTA_SCAN_RETRIES}
