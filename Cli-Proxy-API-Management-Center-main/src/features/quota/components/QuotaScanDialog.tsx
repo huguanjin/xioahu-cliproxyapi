@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { IconAlertTriangle, IconDownload } from '@/components/ui/icons';
 import { authFilesApi } from '@/services/api';
@@ -12,9 +13,14 @@ import type { AuthFileItem } from '@/types';
 import type { QuotaFileEntry } from '../logic';
 import { useQuotaScan, pruneQuotaForDisabled } from '../hooks/useQuotaScan';
 import {
+  clampScanRetries,
   defaultSelection,
+  DEFAULT_QUOTA_SCAN_TUNING,
+  MAX_QUOTA_SCAN_RETRIES,
+  MIN_QUOTA_SCAN_RETRIES,
   QUOTA_SCAN_RESULT_VERSION,
   readQuotaScanResult,
+  retryPhasePercent,
   writeQuotaScanResult,
   type QuotaScanFailure,
   type QuotaScanResult,
@@ -45,6 +51,9 @@ export function QuotaScanDialog({ open, onClose, entries, loadQuota }: QuotaScan
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [downloading, setDownloading] = useState(false);
   const [disabling, setDisabling] = useState(false);
+  // 重试轮数由操作者决定，0 是合法值。存字符串而不是数字：输入框清空时
+  // 需要一个可表示的空态，立刻转成数字会让用户没法把 2 改成 10。
+  const [retryInput, setRetryInput] = useState(String(DEFAULT_QUOTA_SCAN_TUNING.maxRetries));
 
   const { running, progress, run, cancel } = useQuotaScan(loadQuota);
 
@@ -68,7 +77,15 @@ export function QuotaScanDialog({ open, onClose, entries, loadQuota }: QuotaScan
     setSelected(new Set());
     writeQuotaScanResult(null);
 
-    const outcome = await run(entries, t as TFunction);
+    // 收敛在提交时做一次，而不是每次按键：输入过程中允许暂时非法
+    // （清空、只输入一个负号），只在真正开始跑之前判定。
+    const retries = clampScanRetries(retryInput);
+    setRetryInput(String(retries));
+
+    const outcome = await run(entries, t as TFunction, {
+      ...DEFAULT_QUOTA_SCAN_TUNING,
+      maxRetries: retries,
+    });
     if (outcome.cancelled) return;
 
     const next: QuotaScanResult = {
@@ -198,6 +215,13 @@ export function QuotaScanDialog({ open, onClose, entries, loadQuota }: QuotaScan
 
   const total = progress.total;
   const percent = total > 0 ? Math.min(100, Math.round((progress.completed / total) * 100)) : 0;
+  const retryPercent = retryPhasePercent({
+    total: progress.retryTotal,
+    completed: progress.retryCompleted,
+    round: progress.retryRound,
+    rounds: progress.retryRounds,
+  });
+  const showRetryBar = progress.retrying && retryPercent !== null;
 
   // 「几点跑完的」。解析失败时留空而不是显示原始字符串：一个 ISO 时间戳
   // 对操作者没有意义，宁可不显示。
@@ -325,9 +349,40 @@ export function QuotaScanDialog({ open, onClose, entries, loadQuota }: QuotaScan
             <div className={styles.track} role="progressbar" aria-valuenow={percent}>
               <span className={styles.fill} style={{ width: `${percent}%` }} />
             </div>
+
+            {/* 重试是第二个阶段，有它自己的进度条。合并成一个总条会是错的：
+                重试成功的凭证不再进入下一轮，任何预估总量都必然偏大，走到
+                一半就跳完的进度条比没有更让人困惑。这里报本轮的真实进度。 */}
+            {showRetryBar && (
+              <div className={styles.retryBlock}>
+                <div className={styles.progressHead}>
+                  <span>{t('quota_management.scan_retrying')}</span>
+                  <span className={styles.progressCount}>
+                    {t('quota_management.scan_retry_progress', {
+                      round: progress.retryRound,
+                      rounds: progress.retryRounds,
+                      completed: progress.retryCompleted,
+                      total: progress.retryTotal,
+                    })}
+                  </span>
+                </div>
+                <div
+                  className={styles.track}
+                  role="progressbar"
+                  aria-valuenow={retryPercent}
+                  aria-label={t('quota_management.scan_retrying')}
+                >
+                  <span className={styles.fill} style={{ width: `${retryPercent}%` }} />
+                </div>
+                <div className={styles.progressMeta}>
+                  {t('quota_management.scan_failed_so_far', { count: progress.failed })}
+                </div>
+              </div>
+            )}
+
             <div className={styles.progressMeta}>
               {progress.retrying
-                ? t('quota_management.scan_retrying')
+                ? t('quota_management.scan_retry_working')
                 : t('quota_management.scan_failed_so_far', { count: progress.failed })}
               {/* 扫描跑在页面里而不是后端，所以必须说清关窗是否安全。 */}
               <span className={styles.hint}>{t('quota_management.scan_closing_hint')}</span>
@@ -336,6 +391,23 @@ export function QuotaScanDialog({ open, onClose, entries, loadQuota }: QuotaScan
         ) : !result ? (
           <div className={styles.intro}>
             <p>{t('quota_management.scan_description')}</p>
+
+            <div className={styles.setting}>
+              <label className={styles.settingLabel} htmlFor="quota-scan-retries">
+                {t('quota_management.scan_retries_label')}
+              </label>
+              <Input
+                id="quota-scan-retries"
+                value={retryInput}
+                onChange={(event) => setRetryInput(event.target.value)}
+                type="number"
+                min={MIN_QUOTA_SCAN_RETRIES}
+                max={MAX_QUOTA_SCAN_RETRIES}
+                aria-label={t('quota_management.scan_retries_label')}
+              />
+              <p className={styles.settingHint}>{t('quota_management.scan_retries_hint')}</p>
+            </div>
+
             <Button
               variant="secondary"
               size="sm"

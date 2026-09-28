@@ -1353,7 +1353,11 @@
     "scan_incomplete": "只有 {{resolved}} / {{scanned}} 个凭证返回了结果，其余根本没被请求到——可能与另一次加载撞车。请重跑。",
     "scan_no_result_hint": "没有失败项，但那是因为几乎没真正取到数。这是「未得出结论」，不是「全部正常」。",
     "scan_rerun": "重新巡检",
-    "scan_finished_at": "完成于 {{time}}"
+    "scan_finished_at": "完成于 {{time}}",
+    "scan_retries_label": "重试失败项次数",
+    "scan_retries_hint": "每个失败凭证最多重试几次，逐个进行。填 0 表示不重试，直接采用首轮结果。",
+    "scan_retry_progress": "第 {{round}}/{{rounds}} 轮 · {{completed}}/{{total}}",
+    "scan_retry_working": "正在逐个重试失败项"
   },
   "plugin_management": {
     "title": "插件管理",

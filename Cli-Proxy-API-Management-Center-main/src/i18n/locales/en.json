@@ -1353,7 +1353,11 @@
     "scan_incomplete": "Only {{resolved}} of {{scanned}} credentials returned a result. The rest were never queried — the sweep may have collided with another load. Run it again.",
     "scan_no_result_hint": "Nothing failed, but that is because almost nothing was actually queried. Treat this as inconclusive, not as all-clear.",
     "scan_rerun": "Run again",
-    "scan_finished_at": "Finished {{time}}"
+    "scan_finished_at": "Finished {{time}}",
+    "scan_retries_label": "Retry failed credentials",
+    "scan_retries_hint": "How many times to retry each failure, one at a time. Set 0 to skip retrying and keep the first-pass result.",
+    "scan_retry_progress": "Round {{round}}/{{rounds}} · {{completed}}/{{total}}",
+    "scan_retry_working": "Retrying failures one at a time"
   },
   "plugin_management": {
     "title": "Plugin Management",

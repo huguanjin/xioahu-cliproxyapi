@@ -1379,7 +1379,11 @@
     "scan_incomplete": "只有 {{resolved}} / {{scanned}} 個憑證回傳了結果，其餘根本沒被請求到——可能與另一次載入撞車。請重跑。",
     "scan_no_result_hint": "沒有失敗項，但那是因為幾乎沒真正取到數。這是「未得出結論」，不是「全部正常」。",
     "scan_rerun": "重新巡檢",
-    "scan_finished_at": "完成於 {{time}}"
+    "scan_finished_at": "完成於 {{time}}",
+    "scan_retries_label": "重試失敗項次數",
+    "scan_retries_hint": "每個失敗憑證最多重試幾次，逐個進行。填 0 表示不重試，直接採用首輪結果。",
+    "scan_retry_progress": "第 {{round}}/{{rounds}} 輪 · {{completed}}/{{total}}",
+    "scan_retry_working": "正在逐個重試失敗項"
   },
   "plugin_management": {
     "title": "插件管理",

@@ -27,6 +27,19 @@ export interface QuotaScanProgress {
   failed: number;
   /** 重试阶段时为 true，便于界面区分「在扫」和「在补」。 */
   retrying: boolean;
+  /**
+   * 重试阶段的进度，按轮上报。
+   *
+   * 不合并成一个总进度条，因为轮次之间会提前结束（重试成功的凭证不再进入
+   * 下一轮），预估的总量必然偏大 —— 一个走到 60% 就跳完的进度条比没有进度
+   * 条更让人困惑。这里如实报「本轮 N 个已补 M 个，第 R/共 T 轮」。
+   */
+  retryTotal: number;
+  retryCompleted: number;
+  /** 第几轮（1-based）。0 表示还没进入重试。 */
+  retryRound: number;
+  /** 配置的重试上限。0 表示不重试。 */
+  retryRounds: number;
 }
 
 export interface QuotaScanOutcome {
@@ -49,6 +62,10 @@ const emptyProgress: QuotaScanProgress = {
   completed: 0,
   failed: 0,
   retrying: false,
+  retryTotal: 0,
+  retryCompleted: 0,
+  retryRound: 0,
+  retryRounds: 0,
 };
 
 /**
@@ -128,14 +145,32 @@ export function useQuotaScan(loadQuota: (targets: QuotaFileEntry[]) => Promise<v
           ...prev,
           failed: failedNames.size,
           retrying: failedNames.size > 0,
+          retryTotal: failedNames.size,
+          retryCompleted: 0,
+          retryRounds: tuning.maxRetries,
         }));
 
         // Retried one at a time, on its own cadence. Retrying inside the batch
         // would replay the request while the other 19 are still hitting the
         // upstream, which is exactly the condition that produced the failure.
+        //
+        // maxRetries of 0 skips the phase outright: the loop body never runs, the
+        // failure set is whatever the main sweep produced, and the result is
+        // reported without a retry pass. That has to stay a first-class choice —
+        // an operator who already knows the pool is rate-limited wants the raw
+        // first-pass answer, not a slower one.
         for (let round = 0; round < tuning.maxRetries; round += 1) {
           if (cancelRef.current || failedNames.size === 0) break;
           await sleep(tuning.retryIntervalMs);
+
+          const roundSize = failedNames.size;
+          let roundDone = 0;
+          setProgress((prev) => ({
+            ...prev,
+            retryRound: round + 1,
+            retryTotal: roundSize,
+            retryCompleted: 0,
+          }));
 
           const stillFailing = new Set<string>();
           for (const entry of entries) {
@@ -144,6 +179,13 @@ export function useQuotaScan(loadQuota: (targets: QuotaFileEntry[]) => Promise<v
 
             await loadQuota([entry]);
             if (readLiveQuota(entry)?.status === 'error') stillFailing.add(entry.file.name);
+
+            roundDone += 1;
+            setProgress((prev) => ({
+              ...prev,
+              retryCompleted: roundDone,
+              failed: stillFailing.size,
+            }));
             await sleep(tuning.retryIntervalMs);
           }
           failedNames.clear();

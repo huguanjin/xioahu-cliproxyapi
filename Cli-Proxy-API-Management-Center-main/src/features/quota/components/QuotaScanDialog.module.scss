@@ -22,12 +22,54 @@
   }
 }
 
+/* 启动前的设置项。用底色与正文分开，因为它是唯一一处「跑之前要做的决定」，
+   混在说明文字里容易被直接跳过。 */
+.setting {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-self: stretch;
+  padding: 11px 12px;
+  border-radius: 9px;
+  background: var(--bg-secondary);
+
+  :global(.form-group) {
+    margin-bottom: 0;
+  }
+
+  input {
+    max-width: 120px;
+  }
+}
+
+.settingLabel {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.settingHint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
 /* ---------- 运行中 ---------- */
 
 .progressBlock {
   display: flex;
   flex-direction: column;
   gap: 9px;
+}
+
+/* 重试阶段整体缩进并加一条左边线：它是主扫之后的一个子阶段，不是并列的第二
+   个任务，视觉上必须能看出从属关系。 */
+.retryBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 2px;
+  padding-left: 11px;
+  border-left: 2px solid var(--border-primary);
 }
 
 .progressHead {

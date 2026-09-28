@@ -32,6 +32,67 @@ export const DEFAULT_QUOTA_SCAN_TUNING: QuotaScanTuning = {
   retryIntervalMs: 1500,
 };
 
+/** 重试轮数的可选上限。0（不重试）是合法选择，不是缺省值的兜底。 */
+export const MAX_QUOTA_SCAN_RETRIES = 10;
+export const MIN_QUOTA_SCAN_RETRIES = 0;
+
+/**
+ * 把界面上填的重试轮数收敛到合法区间。
+ *
+ * 界面上是一个可自由输入的框，所以空字符串、负数、小数、「abc」都可能到
+ * 这里。负数会让重试循环直接不执行（静默变成 0），小数会让轮次计数对不上，
+ * 而未限幅的大数意味着对 1690 个账号重放几十轮 —— 所以统一收敛，而不是
+ * 信任输入。
+ */
+export function clampScanRetries(value: unknown): number {
+  const parsed = typeof value === 'number' ? value : Number.parseInt(String(value ?? ''), 10);
+  if (!Number.isFinite(parsed)) return DEFAULT_QUOTA_SCAN_TUNING.maxRetries;
+  return Math.min(MAX_QUOTA_SCAN_RETRIES, Math.max(MIN_QUOTA_SCAN_RETRIES, Math.trunc(parsed)));
+}
+
+/**
+ * 重试阶段的进度模型。
+ *
+ * Kept pure and out of the hook so the numbers the progress bar renders are
+ * directly testable — the hook itself only advances these fields, and a wrong
+ * denominator there is invisible in a component test.
+ */
+export interface QuotaScanRetryProgress {
+  /** 本轮要重试的数量。每轮都会变，因为上一轮成功的凭证不再进入下一轮。 */
+  total: number;
+  /** 本轮已补完的数量。 */
+  completed: number;
+  /** 第几轮（1-based）。0 表示还没进入重试。 */
+  round: number;
+  /** 配置的轮数上限。0 表示不重试。 */
+  rounds: number;
+}
+
+/**
+ * 重试阶段的完成百分比。
+ *
+ * Per-round, never cumulative. A run of N failures over R rounds does not do
+ * N×R work: each round only retries what the previous round left failing, so a
+ * cumulative bar would need a denominator no one can predict when the round
+ * starts — and would visibly jump backwards when a round succeeds early. The
+ * honest figure is "how far through *this* round am I".
+ *
+ * Returns null when there is nothing to draw: no failures, retries disabled, or
+ * the phase already finished. A bar at 0% for "nothing to do" reads as stalled
+ * work, which is the opposite of the truth.
+ */
+export function retryPhasePercent(progress: QuotaScanRetryProgress): number | null {
+  if (progress.rounds <= 0) return null;
+  if (progress.round <= 0) return null;
+  if (progress.total <= 0) return null;
+  return Math.min(100, Math.max(0, Math.round((progress.completed / progress.total) * 100)));
+}
+
+/** 重试阶段是否值得显示进度（而不是只有一句「正在重试」）。 */
+export function shouldShowRetryProgress(progress: QuotaScanRetryProgress): boolean {
+  return retryPhasePercent(progress) !== null;
+}
+
 /** 把条目切成批次。最后一批可以不满。 */
 export function chunkEntries<T>(items: readonly T[], size: number): T[][] {
   if (!Number.isFinite(size) || size < 1) return items.length === 0 ? [] : [[...items]];

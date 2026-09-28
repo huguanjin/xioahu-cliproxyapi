@@ -215,4 +215,61 @@ describe('run() failure detection', () => {
     const outcome = await run(entries, t, FAST);
     expect(outcome.resolved).toBe(0);
   });
+
+  test('maxRetries 0 skips the retry phase entirely', async () => {
+    // 0 是合法选择：已知上游在限流时，要的就是首轮原始结果。
+    const entries = [entry('a.json')];
+    let calls = 0;
+
+    const loadQuota = async (targets: QuotaFileEntry[]) => {
+      calls += 1;
+      const writes: Record<string, AntigravityQuotaState> = {};
+      for (const target of targets) writes[target.file.name] = errorState('rate limited');
+      useQuotaStore.getState().setAntigravityQuota((prev) => ({ ...prev, ...writes }));
+    };
+
+    const run = captureRun(loadQuota);
+    const outcome = await run(entries, t, { ...FAST, maxRetries: 0 });
+
+    expect(calls).toBe(1); // 只跑了主扫那一次，没有重试
+    expect(outcome.failures.map((f) => f.name)).toEqual(['a.json']); // 首轮结果如实保留
+  });
+
+  test('maxRetries 0 still reports the first-pass result as final', async () => {
+    // 「不重试」不能变成「不判定」：失败项必须照常出现在结果里。
+    const entries = [entry('a.json'), entry('b.json')];
+
+    const loadQuota = async (targets: QuotaFileEntry[]) => {
+      const writes: Record<string, AntigravityQuotaState> = {};
+      for (const target of targets) writes[target.file.name] = errorState('boom');
+      useQuotaStore.getState().setAntigravityQuota((prev) => ({ ...prev, ...writes }));
+    };
+
+    const run = captureRun(loadQuota);
+    const outcome = await run(entries, t, { ...FAST, maxRetries: 0 });
+    expect(outcome.failures).toHaveLength(2);
+  });
+
+  test('a retry round that clears everything stops before the next round', async () => {
+    // 提前结束是进度条不能合并成总条的原因：第二轮根本不会发生。
+    const entries = [entry('a.json'), entry('b.json')];
+    let retryCalls = 0;
+
+    const loadQuota = async (targets: QuotaFileEntry[]) => {
+      const writes: Record<string, AntigravityQuotaState> = {};
+      for (const target of targets) {
+        // 主扫（批大小 2，一次调用）失败，之后每次单独重试都成功。
+        retryCalls += 1;
+        writes[target.file.name] = retryCalls === 1 ? errorState('boom') : successState();
+      }
+      useQuotaStore.getState().setAntigravityQuota((prev) => ({ ...prev, ...writes }));
+    };
+
+    const run = captureRun(loadQuota);
+    const outcome = await run(entries, t, { ...FAST, maxRetries: 3 });
+
+    expect(outcome.failures).toEqual([]);
+    // 1 次主扫 + 2 次重试（第二轮不再发生，因为第一轮已全部恢复）。
+    expect(retryCalls).toBe(3);
+  });
 });

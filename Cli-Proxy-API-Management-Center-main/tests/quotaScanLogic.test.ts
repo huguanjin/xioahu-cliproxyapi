@@ -2,11 +2,16 @@ import { afterAll, beforeEach, describe, expect, test } from 'bun:test';
 import {
   buildScanFailures,
   chunkEntries,
+  clampScanRetries,
   classifyScanFailure,
   defaultSelection,
   DEFAULT_QUOTA_SCAN_TUNING,
+  MAX_QUOTA_SCAN_RETRIES,
+  MIN_QUOTA_SCAN_RETRIES,
   QUOTA_SCAN_RESULT_VERSION,
   readQuotaScanResult,
+  retryPhasePercent,
+  shouldShowRetryProgress,
   writeQuotaScanResult,
   type QuotaScanFailure,
 } from '@/features/quota/scanLogic';
@@ -129,6 +134,94 @@ describe('scan tuning defaults', () => {
     expect(DEFAULT_QUOTA_SCAN_TUNING.batchSize).toBeGreaterThan(0);
     expect(DEFAULT_QUOTA_SCAN_TUNING.batchIntervalMs).toBeGreaterThan(0);
     expect(DEFAULT_QUOTA_SCAN_TUNING.retryIntervalMs).toBeGreaterThan(0);
+  });
+});
+
+describe('clampScanRetries', () => {
+  test('accepts zero — not retrying is a real choice', () => {
+    // 操作者已知上游在限流时，想要的就是首轮原始结果，而不是一个更慢的版本。
+    expect(clampScanRetries(0)).toBe(0);
+    expect(clampScanRetries('0')).toBe(0);
+  });
+
+  test('accepts values in range, from numbers and strings', () => {
+    expect(clampScanRetries(3)).toBe(3);
+    expect(clampScanRetries('3')).toBe(3);
+    expect(clampScanRetries(MAX_QUOTA_SCAN_RETRIES)).toBe(MAX_QUOTA_SCAN_RETRIES);
+  });
+
+  test('clamps past the maximum', () => {
+    // 未限幅意味着对 1690 个账号重放几十轮。
+    expect(clampScanRetries(MAX_QUOTA_SCAN_RETRIES + 5)).toBe(MAX_QUOTA_SCAN_RETRIES);
+    expect(clampScanRetries(9999)).toBe(MAX_QUOTA_SCAN_RETRIES);
+  });
+
+  test('clamps negatives up to zero rather than letting them skip silently', () => {
+    // 负数会让重试循环直接不执行 —— 行为上等于 0，但界面显示 -1 会是谎话。
+    expect(clampScanRetries(-1)).toBe(0);
+    expect(clampScanRetries(-100)).toBe(0);
+  });
+
+  test('truncates fractions so the round counter stays honest', () => {
+    expect(clampScanRetries(2.7)).toBe(2);
+    expect(clampScanRetries('2.9')).toBe(2);
+  });
+
+  test('falls back to the default for input that is not a number', () => {
+    // 输入框可以被清空或填成任意文本，这些都不该变成「0 次重试」的静默决定。
+    for (const bad of ['', '   ', 'abc', null, undefined, {}, Number.NaN]) {
+      expect(clampScanRetries(bad)).toBe(DEFAULT_QUOTA_SCAN_TUNING.maxRetries);
+    }
+  });
+
+  test('never returns a value outside the documented range', () => {
+    const inputs = [-5, -0.5, 0, 0.5, 1, 2, 9, 10, 11, 1e6, 'x', '', null];
+    for (const input of inputs) {
+      const got = clampScanRetries(input);
+      expect(got).toBeGreaterThanOrEqual(MIN_QUOTA_SCAN_RETRIES);
+      expect(got).toBeLessThanOrEqual(MAX_QUOTA_SCAN_RETRIES);
+      expect(Number.isInteger(got)).toBe(true);
+    }
+  });
+});
+
+describe('retryPhasePercent', () => {
+  test('reports this round progress, not a cumulative one', () => {
+    // Given a round of 10 with 4 done, the bar reads 40% — never "rounds so far".
+    expect(retryPhasePercent({ total: 10, completed: 4, round: 1, rounds: 2 })).toBe(40);
+    expect(retryPhasePercent({ total: 10, completed: 10, round: 2, rounds: 2 })).toBe(100);
+  });
+
+  test('a later round with fewer failures restarts from this round own size', () => {
+    // 第二轮只有 3 个要补（第一轮救回了 7 个），分母随之变成 3 —— 这正是
+    // 不能合并成总进度条的原因。
+    expect(retryPhasePercent({ total: 3, completed: 1, round: 2, rounds: 3 })).toBe(33);
+  });
+
+  test('returns null when retries are disabled', () => {
+    // 0 次重试时不该画一个 0% 的条 —— 那读起来像卡住，而不是「不用重试」。
+    expect(retryPhasePercent({ total: 0, completed: 0, round: 0, rounds: 0 })).toBeNull();
+  });
+
+  test('returns null before the retry phase starts', () => {
+    expect(retryPhasePercent({ total: 5, completed: 0, round: 0, rounds: 2 })).toBeNull();
+  });
+
+  test('returns null when there is nothing to retry', () => {
+    // 首轮全成功：没有失败项，重试阶段无事可做。
+    expect(retryPhasePercent({ total: 0, completed: 0, round: 1, rounds: 2 })).toBeNull();
+  });
+
+  test('clamps into 0..100 even if the counters overshoot', () => {
+    expect(retryPhasePercent({ total: 4, completed: 9, round: 1, rounds: 2 })).toBe(100);
+    expect(retryPhasePercent({ total: 4, completed: -3, round: 1, rounds: 2 })).toBe(0);
+  });
+});
+
+describe('shouldShowRetryProgress', () => {
+  test('agrees with retryPhasePercent', () => {
+    expect(shouldShowRetryProgress({ total: 5, completed: 1, round: 1, rounds: 2 })).toBe(true);
+    expect(shouldShowRetryProgress({ total: 0, completed: 0, round: 0, rounds: 0 })).toBe(false);
   });
 });
 
