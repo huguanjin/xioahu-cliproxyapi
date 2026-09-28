@@ -113,6 +113,7 @@ const toAntigravityQuotaSubscription = (
     plan: summary.plan,
     tierName: summary.tierName,
     tierId: summary.tierId,
+    credits: summary.credits,
   };
 };
 

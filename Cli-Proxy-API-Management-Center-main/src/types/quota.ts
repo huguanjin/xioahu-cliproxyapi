@@ -7,6 +7,13 @@ export type ThemeColors = { bg: string; text: string; border?: string };
 export type TypeColorSet = { light: ThemeColors; dark?: ThemeColors };
 export type ResolvedTheme = 'light' | 'dark';
 
+/**
+ * AI credits 余额。定义在 services 层（那里做的解析），这里再导出一次以便
+ * 类型消费者从一个地方取到 —— 避免两处各写一份而漂移。
+ */
+import type { AntigravityCredits } from '@/services/api/antigravitySubscription';
+export type { AntigravityCredits };
+
 // API payload types
 export interface AntigravityQuotaSummaryBucketPayload {
   bucketId?: string;
@@ -187,6 +194,14 @@ export interface AntigravityQuotaSubscription {
   plan: string | null;
   tierName: string | null;
   tierId: string | null;
+  /**
+   * AI credits 余额（`paidTier.availableCredits` 里的 GOOGLE_ONE_AI 项）。
+   *
+   * Null 表示该套餐不含这类点数 —— 与「点数为 0」是两回事：前者根本没有这
+   * 项兜底，后者是用完了。界面上必须区分，否则会把一个正常的免费号画成
+   * 「额度耗尽」。
+   */
+  credits?: AntigravityCredits | null;
 }
 
 export interface AntigravityQuotaBucket {

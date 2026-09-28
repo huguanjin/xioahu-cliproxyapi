@@ -92,6 +92,13 @@ const translateAntigravityQuotaDescription = (
   return value;
 };
 
+/**
+ * 点数通常是大整数，小数位没有信息量；但小额度（例如 0.5）不能直接截成 0 -
+ * 那会把「还有一点」显示成「没有了」。整数就原样，否则保留一位小数。
+ */
+const formatCreditsAmount = (amount: number): string =>
+  Number.isInteger(amount) ? String(amount) : amount.toFixed(1);
+
 const getAntigravityPlanLabel = (
   subscription: AntigravityQuotaSubscription | null | undefined,
   t: TFunction
@@ -114,6 +121,15 @@ export function AntigravityQuotaBody({ quota, classes }: QuotaBodyProps<Antigrav
   const planLabel = getAntigravityPlanLabel(quota.subscription, t);
   const normalizedPlan = quota.subscription?.plan?.toLowerCase() ?? '';
   const isPremiumPlan = normalizedPlan === 'ultra' || normalizedPlan === 'ultra-lite';
+  const credits = quota.subscription?.credits ?? null;
+  const creditsAvailable = credits?.available ?? false;
+  // 无 credits 项 = 该套餐不含这类点数，整块不显示。显示成「0」会把一个正常
+  // 的免费号画成余额耗尽。
+  const creditsLabel = credits
+    ? credits.available
+      ? t('antigravity_quota.credits_value', { amount: formatCreditsAmount(credits.amount) })
+      : t('antigravity_quota.credits_unavailable')
+    : null;
   const serverTimeOffsetMs = quota.serverTimeOffsetMs ?? 0;
   const resetTimestamps = useMemo(
     () =>
@@ -154,14 +170,27 @@ export function AntigravityQuotaBody({ quota, classes }: QuotaBodyProps<Antigrav
 
   return (
     <>
-      {planLabel && (
+      {(planLabel || creditsLabel) && (
         <div className={classes.codexPlan}>
-          <span className={classes.codexPlanItem}>
-            <span className={classes.codexPlanLabel}>{t('antigravity_quota.plan_label')}</span>
-            <span className={isPremiumPlan ? classes.premiumPlanValue : classes.codexPlanValue}>
-              {planLabel}
+          {planLabel && (
+            <span className={classes.codexPlanItem}>
+              <span className={classes.codexPlanLabel}>{t('antigravity_quota.plan_label')}</span>
+              <span className={isPremiumPlan ? classes.premiumPlanValue : classes.codexPlanValue}>
+                {planLabel}
+              </span>
             </span>
-          </span>
+          )}
+          {/* AI 点数余额。它是超出套餐限速后的兜底额度，所以与套餐并列而不是
+              混进任一个配额分组 —— 分组讲的是「还能用多少」，这一项讲的是
+              「用完之后的备用金还剩多少」。 */}
+          {creditsLabel && (
+            <span className={classes.codexPlanItem}>
+              <span className={classes.codexPlanLabel}>{t('antigravity_quota.credits_label')}</span>
+              <span className={creditsAvailable ? classes.codexPlanValue : classes.premiumPlanValue}>
+                {creditsLabel}
+              </span>
+            </span>
+          )}
         </div>
       )}
       {groups.length === 0 ? (

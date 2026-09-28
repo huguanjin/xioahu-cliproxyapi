@@ -491,7 +491,10 @@
     "quota_summary_refresh": "重新整理摘要",
     "quota_summary_gemini": "Gemini 可用",
     "quota_summary_claude": "Claude 可用",
-    "quota_summary_credits_only": "其中 {{count}} 個僅透過點數回退可用"
+    "quota_summary_credits_only": "其中 {{count}} 個僅透過點數回退可用",
+    "credits_label": "AI 點數",
+    "credits_value": "{{amount}}",
+    "credits_unavailable": "已用盡"
   },
   "claude_quota": {
     "title": "Claude 配額",

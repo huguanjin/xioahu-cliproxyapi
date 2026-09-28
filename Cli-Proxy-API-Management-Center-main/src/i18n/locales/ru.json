@@ -484,7 +484,10 @@
     "quota_summary_refresh": "Обновить сводку",
     "quota_summary_gemini": "Доступно Gemini",
     "quota_summary_claude": "Доступно Claude",
-    "quota_summary_credits_only": "{{count}} только через резервные кредиты"
+    "quota_summary_credits_only": "{{count}} только через резервные кредиты",
+    "credits_label": "AI-кредиты",
+    "credits_value": "{{amount}}",
+    "credits_unavailable": "исчерпаны"
   },
   "claude_quota": {
     "title": "Квота Claude",

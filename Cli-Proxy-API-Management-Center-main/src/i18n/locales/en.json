@@ -491,7 +491,10 @@
     "quota_summary_refresh": "Refresh summary",
     "quota_summary_gemini": "Gemini available",
     "quota_summary_claude": "Claude available",
-    "quota_summary_credits_only": "{{count}} via credits fallback only"
+    "quota_summary_credits_only": "{{count}} via credits fallback only",
+    "credits_label": "AI credits",
+    "credits_value": "{{amount}}",
+    "credits_unavailable": "none left"
   },
   "claude_quota": {
     "title": "Claude Quota",
