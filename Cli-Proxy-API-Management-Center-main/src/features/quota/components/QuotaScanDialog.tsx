@@ -13,6 +13,7 @@ import type { QuotaFileEntry } from '../logic';
 import { useQuotaScan, pruneQuotaForDisabled } from '../hooks/useQuotaScan';
 import {
   defaultSelection,
+  QUOTA_SCAN_RESULT_VERSION,
   readQuotaScanResult,
   writeQuotaScanResult,
   type QuotaScanFailure,
@@ -71,6 +72,7 @@ export function QuotaScanDialog({ open, onClose, entries, loadQuota }: QuotaScan
     if (outcome.cancelled) return;
 
     const next: QuotaScanResult = {
+      version: QUOTA_SCAN_RESULT_VERSION,
       finishedAt: new Date().toISOString(),
       scanned: outcome.scanned,
       failed: outcome.failures.length,
@@ -197,6 +199,16 @@ export function QuotaScanDialog({ open, onClose, entries, loadQuota }: QuotaScan
   const total = progress.total;
   const percent = total > 0 ? Math.min(100, Math.round((progress.completed / total) * 100)) : 0;
 
+  // 「几点跑完的」。解析失败时留空而不是显示原始字符串：一个 ISO 时间戳
+  // 对操作者没有意义，宁可不显示。
+  const finishedLabel = useMemo(() => {
+    const raw = result?.finishedAt;
+    if (!raw) return '';
+    const parsed = Date.parse(raw);
+    if (Number.isNaN(parsed)) return '';
+    return new Date(parsed).toLocaleTimeString();
+  }, [result]);
+
   const renderGroup = (kind: 'definitive' | 'unconfirmed', failures: QuotaScanFailure[]) => {
     if (failures.length === 0) return null;
     const allSelected = failures.every((failure) => selected.has(failure.name));
@@ -250,6 +262,19 @@ export function QuotaScanDialog({ open, onClose, entries, loadQuota }: QuotaScan
         </Button>
       ) : (
         <>
+          {/* 只要有结果，就必须同时给出「再扫一次」的出口。结果会持久化到
+              sessionStorage，所以关掉再打开仍是完成态 —— 没有这个按钮，弹窗
+              就变成只能跑一次，唯一的出路是「清除结果」。 */}
+          {result && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void handleStart()}
+              disabled={disableControls || entries.length === 0}
+            >
+              {t('quota_management.scan_rerun')}
+            </Button>
+          )}
           {result && (
             <Button variant="ghost" size="sm" onClick={handleClear}>
               {t('quota_management.scan_clear')}
@@ -330,6 +355,13 @@ export function QuotaScanDialog({ open, onClose, entries, loadQuota }: QuotaScan
                   failed: result.failed,
                 })}
               </span>
+              {/* 结果会持久化，重新打开弹窗看到的是上一轮。带上完成时间，
+                  否则一份昨天的「全部正常」看起来和刚跑完的一模一样。 */}
+              {finishedLabel && (
+                <span className={styles.finishedAt}>
+                  {t('quota_management.scan_finished_at', { time: finishedLabel })}
+                </span>
+              )}
             </div>
 
             {/* 「0 个失败」必须能和「根本没取到数」分开。前者是所有凭证都

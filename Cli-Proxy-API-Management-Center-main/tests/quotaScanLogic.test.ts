@@ -5,6 +5,7 @@ import {
   classifyScanFailure,
   defaultSelection,
   DEFAULT_QUOTA_SCAN_TUNING,
+  QUOTA_SCAN_RESULT_VERSION,
   readQuotaScanResult,
   writeQuotaScanResult,
   type QuotaScanFailure,
@@ -153,24 +154,22 @@ describe('scan result persistence', () => {
     }
   });
 
+  const result = () => ({
+    version: QUOTA_SCAN_RESULT_VERSION,
+    finishedAt: '2026-09-27T12:00:00Z',
+    scanned: 1690,
+    failed: 1,
+    failures: [{ name: 'a.json', kind: 'definitive' as const, message: 'x' }],
+    resolved: 1690,
+  });
+
   test('round-trips a result', () => {
-    const result = {
-      finishedAt: '2026-09-27T12:00:00Z',
-      scanned: 1690,
-      failed: 1,
-      failures: [{ name: 'a.json', kind: 'definitive' as const, message: 'x' }],
-    };
-    writeQuotaScanResult(result);
-    expect(readQuotaScanResult()).toEqual(result);
+    writeQuotaScanResult(result());
+    expect(readQuotaScanResult()).toEqual(result());
   });
 
   test('clears on null', () => {
-    writeQuotaScanResult({
-      finishedAt: 't',
-      scanned: 1,
-      failed: 0,
-      failures: [],
-    });
+    writeQuotaScanResult(result());
     writeQuotaScanResult(null);
     expect(readQuotaScanResult()).toBeNull();
   });
@@ -181,5 +180,29 @@ describe('scan result persistence', () => {
     expect(readQuotaScanResult()).toBeNull();
     window.sessionStorage.setItem('quotaPage.scanResult', '{"failures":"nope"}');
     expect(readQuotaScanResult()).toBeNull();
+  });
+
+  test('discards a result written by a different version', () => {
+    // 关键安全性：旧版本写下的「全部正常」不能被当成有效结论展示。
+    // 上一版的判定恒报 0 个失败，它的结果等于一次假体检。
+    const stale = { ...result(), version: QUOTA_SCAN_RESULT_VERSION - 1 };
+    window.sessionStorage.setItem('quotaPage.scanResult', JSON.stringify(stale));
+
+    expect(readQuotaScanResult()).toBeNull();
+    // 还要把垃圾清掉，否则每次打开都要重新判一遍。
+    expect(window.sessionStorage.getItem('quotaPage.scanResult')).toBeNull();
+  });
+
+  test('discards a versionless result from before versioning existed', () => {
+    const { version: _drop, ...noVersion } = result();
+    window.sessionStorage.setItem('quotaPage.scanResult', JSON.stringify(noVersion));
+    expect(readQuotaScanResult()).toBeNull();
+  });
+
+  test('a result with zero failures is still valid when it is current', () => {
+    // 「0 个失败」不是可疑信号本身 —— 造假的是旧版本，不是这个数字。
+    const clean = { ...result(), failed: 0, failures: [] };
+    writeQuotaScanResult(clean);
+    expect(readQuotaScanResult()).toEqual(clean);
   });
 });

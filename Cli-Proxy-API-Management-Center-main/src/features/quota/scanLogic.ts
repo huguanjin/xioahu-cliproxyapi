@@ -104,8 +104,24 @@ export function defaultSelection(failures: readonly QuotaScanFailure[]): Set<str
   return new Set(failures.filter((failure) => failure.kind === 'definitive').map((f) => f.name));
 }
 
+/**
+ * 扫描结果的存储版本。
+ *
+ * Any result written by a different version is discarded on read rather than
+ * shown. This is not bookkeeping: a result is a verdict the operator acts on,
+ * and a stored "全部正常" produced by a build that could not detect failures is
+ * worse than no result at all — it reads as a clean bill of health for a sweep
+ * that never actually checked anything. Bumping this is the cheap way to
+ * invalidate every stale verdict at once.
+ *
+ * v2: `resolved` added, and failure detection switched to a live store read
+ * (v1 could report zero failures no matter what happened).
+ */
+export const QUOTA_SCAN_RESULT_VERSION = 2;
+
 /** 扫描结果落 sessionStorage，避免刷新后丢掉「下载/停用」这一步。 */
 export interface QuotaScanResult {
+  version: number;
   finishedAt: string;
   scanned: number;
   failed: number;
@@ -113,9 +129,8 @@ export interface QuotaScanResult {
   /**
    * 真正取到结果的凭证数。0 个失败 + resolved 远小于 scanned，含义是
    * 「大部分根本没取到数」，与「全部正常」是两回事，界面必须分开说。
-   * 旧结果没有这个字段，读取时按 scanned 兜底。
    */
-  resolved?: number;
+  resolved: number;
 }
 
 const QUOTA_SCAN_RESULT_KEY = 'quotaPage.scanResult';
@@ -127,6 +142,11 @@ export const readQuotaScanResult = (): QuotaScanResult | null => {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as QuotaScanResult;
     if (!parsed || !Array.isArray(parsed.failures)) return null;
+    // 版本不符 = 上一版代码写下的判断，一律丢弃。见 QUOTA_SCAN_RESULT_VERSION。
+    if (parsed.version !== QUOTA_SCAN_RESULT_VERSION) {
+      window.sessionStorage.removeItem(QUOTA_SCAN_RESULT_KEY);
+      return null;
+    }
     return parsed;
   } catch {
     return null;

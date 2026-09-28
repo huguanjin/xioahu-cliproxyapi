@@ -1377,7 +1377,9 @@
     "scan_disable_partial": "已停用 {{success}} 個，{{failed}} 個失敗",
     "scan_clear": "清除結果",
     "scan_incomplete": "只有 {{resolved}} / {{scanned}} 個憑證回傳了結果，其餘根本沒被請求到——可能與另一次載入撞車。請重跑。",
-    "scan_no_result_hint": "沒有失敗項，但那是因為幾乎沒真正取到數。這是「未得出結論」，不是「全部正常」。"
+    "scan_no_result_hint": "沒有失敗項，但那是因為幾乎沒真正取到數。這是「未得出結論」，不是「全部正常」。",
+    "scan_rerun": "重新巡檢",
+    "scan_finished_at": "完成於 {{time}}"
   },
   "plugin_management": {
     "title": "插件管理",

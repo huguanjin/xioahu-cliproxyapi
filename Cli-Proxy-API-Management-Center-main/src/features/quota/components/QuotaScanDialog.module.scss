@@ -87,6 +87,13 @@
   }
 }
 
+/* 完成时间用弱化色：是注脚，不是结论。但它必须可见 —— 这份结果可能是
+   上一轮的，没有时间戳就分不出「刚跑完」和「昨天跑完的」。 */
+.finishedAt {
+  font-size: 12px;
+  color: var(--text-quaternary);
+}
+
 .allGood {
   margin: 0;
   color: var(--text-secondary);
