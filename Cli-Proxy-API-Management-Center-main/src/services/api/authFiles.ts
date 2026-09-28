@@ -669,10 +669,17 @@ export const authFilesApi = {
     options?: { includeEmails?: boolean }
   ): Promise<Blob> => {
     const requestedNames = normalizeRequestedAuthFileNames(names);
-    const response = await apiClient.postRaw('/auth-files/download-archive', {
-      names: requestedNames,
-      include_emails: options?.includeEmails ?? true,
-    });
+    // responseType 必须显式指定：实例默认按 JSON 解析响应，zip 会被当成文本
+    // 交给 createObjectURL，报「Overload resolution failed」。与 getRaw 的单
+    // 凭证下载同一处理方式。
+    const response = await apiClient.postRaw(
+      '/auth-files/download-archive',
+      {
+        names: requestedNames,
+        include_emails: options?.includeEmails ?? true,
+      },
+      { responseType: 'blob' }
+    );
     return response.data as Blob;
   },
 
