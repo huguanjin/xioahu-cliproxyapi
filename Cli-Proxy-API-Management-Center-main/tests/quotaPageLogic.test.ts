@@ -231,3 +231,94 @@ describe('sortQuotaEntries', () => {
     expect(paginate(sorted, 1, 2).pageItems[0].file.name).toBe(last);
   });
 });
+
+describe('sortQuotaEntries — weekly mode', () => {
+  const entries = classifyQuotaFiles(FILES);
+  const byName = (list: QuotaFileEntry[]) => list.map((entry) => entry.file.name);
+  const weekly = (values: Record<string, number>) => (entry: QuotaFileEntry) =>
+    values[entry.file.name] ?? null;
+
+  test('puts the most weekly quota first', () => {
+    // 降序：这是「找配额充足的凭证」这个问题本身。
+    const sorted = sortQuotaEntries(
+      entries,
+      'weekly',
+      () => null,
+      weekly({ 'claude-a.json': 10, 'codex-a.json': 90, 'kimi-a.json': 50 })
+    );
+    expect(byName(sorted).slice(0, 3)).toEqual([
+      'codex-a.json',
+      'kimi-a.json',
+      'claude-a.json',
+    ]);
+  });
+
+  test('a zero-weekly credential sinks below a full one', () => {
+    const sorted = sortQuotaEntries(
+      entries,
+      'weekly',
+      () => null,
+      weekly({ 'claude-a.json': 100, 'codex-a.json': 0 })
+    );
+    expect(byName(sorted)[0]).toBe('claude-a.json');
+    expect(byName(sorted)[1]).toBe('codex-a.json');
+  });
+
+  test('sinks credentials with no weekly reading, keeping their grouped order', () => {
+    // null 是「未知」，不是「耗尽」。没查过额度的凭证不能被排成充足，
+    // 也不能被排成耗尽 —— 沉底，并保持传入的分组顺序。
+    const sorted = sortQuotaEntries(
+      entries,
+      'weekly',
+      () => null,
+      weekly({ 'codex-b.json': 20, 'kimi-a.json': 80 })
+    );
+    expect(byName(sorted).slice(0, 2)).toEqual(['kimi-a.json', 'codex-b.json']);
+    expect(byName(sorted).slice(2)).toEqual([
+      'claude-a.json',
+      'codex-a.json',
+      'grok-a.json',
+    ]);
+  });
+
+  test('leaves the order untouched when nothing has loaded', () => {
+    expect(byName(sortQuotaEntries(entries, 'weekly', () => null, () => null))).toEqual(
+      byName(entries)
+    );
+  });
+
+  test('breaks ties on the original position', () => {
+    const sorted = sortQuotaEntries(entries, 'weekly', () => null, () => 50);
+    expect(byName(sorted)).toEqual(byName(entries));
+  });
+
+  test('ignores the soonest resolver entirely', () => {
+    // 两个键回答相反的问题，绝不能混：soonest 是「何时恢复」，weekly 是
+    // 「还剩多少」。一个满额但 20 分钟后重置的凭证在前者里靠前、在后者里
+    // 靠最后，两种排序对各自的问题都是对的。
+    const sorted = sortQuotaEntries(
+      entries,
+      'weekly',
+      () => 1,
+      weekly({ 'claude-a.json': 100 })
+    );
+    expect(byName(sorted)[0]).toBe('claude-a.json');
+  });
+
+  test('does not mutate the input', () => {
+    const input = [...entries];
+    sortQuotaEntries(input, 'weekly', () => null, weekly({ 'codex-b.json': 1 }));
+    expect(input).toEqual(entries);
+  });
+
+  test('sorts before paginating, so the fullest lands on page one', () => {
+    const last = entries[entries.length - 1].file.name;
+    const sorted = sortQuotaEntries(entries, 'weekly', () => null, weekly({ [last]: 100 }));
+    expect(paginate(sorted, 1, 2).pageItems[0].file.name).toBe(last);
+  });
+
+  test('tolerates a missing weekly resolver', () => {
+    // 排序键可选：其它 provider 没有周限额概念。
+    expect(byName(sortQuotaEntries(entries, 'weekly', () => null))).toEqual(byName(entries));
+  });
+});

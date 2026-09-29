@@ -249,6 +249,22 @@ button.quotaMessageAction {
   color: var(--text-quaternary);
 }
 
+/* 家族额度用尽徽章。这个宿主的 header 是 row + space-between，所以它靠右，
+   与左侧的标题/描述同基线。只在用尽时出现 —— 缺省即健康。 */
+.antigravityFamilyBadge {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border-radius: 5px;
+  font-family: $font-mono;
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--warning-text);
+  border: 1px solid var(--warning-border);
+  background: var(--warning-bg);
+  white-space: nowrap;
+}
+
 /* ---------- Codex 重置积分 ---------- */
 
 .codexResetCredits {

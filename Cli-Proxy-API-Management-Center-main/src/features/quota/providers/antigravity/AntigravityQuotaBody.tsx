@@ -10,6 +10,7 @@ import { QuotaMeter } from '../../components/QuotaMeter';
 import { collectQuotaRowInstants, pickUrgentRowId } from '../../resetSchedule';
 import type { QuotaBodyProps } from '../../types';
 import { getNextAntigravityCountdownUpdateDelay } from './countdown';
+import { familyQuotaState } from './familyState';
 
 const formatAntigravityDuration = (t: TFunction, deltaMs: number): string => {
   const totalMinutes = Math.max(1, Math.ceil(deltaMs / 60000));
@@ -203,6 +204,7 @@ export function AntigravityQuotaBody({ quota, classes }: QuotaBodyProps<Antigrav
             t
           );
           const groupDescription = translateAntigravityQuotaDescription(group.description, t);
+          const familyState = familyQuotaState(group, nowMs);
 
           return (
             <div key={group.id} className={classes.antigravityQuotaGroup}>
@@ -211,6 +213,25 @@ export function AntigravityQuotaBody({ quota, classes }: QuotaBodyProps<Antigrav
                 {groupDescription && (
                   <span className={classes.antigravityQuotaGroupDescription}>
                     {groupDescription}
+                  </span>
+                )}
+                {/* 额度用尽徽章。措辞是「用尽」而不是「无法调用」：这是对上游
+                    配额载荷的陈述，不是路由事实 —— 代理并不会据此拦截请求，
+                    它要撞到 429 才知道。缺省不渲染，因为缺省即健康。 */}
+                {familyState.kind !== 'none' && (
+                  <span
+                    className={classes.antigravityFamilyBadge}
+                    title={t('antigravity_quota.family_badge_hint')}
+                  >
+                    {t(`antigravity_quota.family_${familyState.window}_spent`)}
+                    {' · '}
+                    {familyState.kind === 'countdown'
+                      ? t('antigravity_quota.family_recovers_in', {
+                          duration: formatAntigravityDuration(t, familyState.resetAtMs - nowMs),
+                        })
+                      : familyState.kind === 'stale'
+                        ? t('antigravity_quota.family_stale')
+                        : t('antigravity_quota.family_unknown_time')}
                   </span>
                 )}
               </div>

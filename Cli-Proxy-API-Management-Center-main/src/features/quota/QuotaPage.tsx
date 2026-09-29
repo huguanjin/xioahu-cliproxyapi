@@ -42,11 +42,17 @@ import {
 } from './constants';
 import {
   buildAvailabilityCounts,
+  buildFamilyCounts,
   filterEntriesByAvailability,
+  filterEntriesByFamily,
   isQuotaAvailabilityFilter,
+  isQuotaFamilyFilter,
   QUOTA_AVAILABILITY_FILTERS,
+  QUOTA_FAMILY_FILTERS,
   type QuotaAvailabilityFilter,
+  type QuotaFamilyFilter,
 } from './availability';
+import { weeklyRemainingMin } from './providers/antigravity/familyState';
 import {
   buildTabCounts,
   classifyQuotaFiles,
@@ -88,6 +94,9 @@ export function QuotaPage() {
   );
   const [availabilityFilter, setAvailabilityFilter] = useState<QuotaAvailabilityFilter>(
     () => readQuotaUiState()?.availabilityFilter ?? 'all'
+  );
+  const [familyFilter, setFamilyFilter] = useState<QuotaFamilyFilter>(
+    () => readQuotaUiState()?.familyFilter ?? 'all'
   );
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
@@ -148,10 +157,10 @@ export function QuotaPage() {
 
   /* ---------- 归类 / 过滤 / 排序 / 分页 ---------- */
 
-  // 只在「最快恢复优先」下订阅分钟时钟。默认序下不门控的话，pageItems 每分钟
-  // 换一次身份，会反复空转下面那个「刷新全部」的 loading 下降沿 effect。
-  const tick = useNow(sortMode !== 'default');
-  const sortNow = sortMode === 'default' ? 0 : tick;
+  // 分钟时钟只在「最快恢复优先」下需要：其余排序与时间无关，订阅它会让
+  // pageItems 每分钟换一次身份，空转下面的刷新下降沿 effect。
+  const tick = useNow(sortMode === 'soonest');
+  const sortNow = sortMode === 'soonest' ? tick : 0;
 
   const entries = useMemo(() => classifyQuotaFiles(files), [files]);
   const tabCounts = useMemo(() => buildTabCounts(entries), [entries]);
@@ -172,19 +181,40 @@ export function QuotaPage() {
     () => buildAvailabilityCounts(scopedEntries, getQuota),
     [scopedEntries, getQuota]
   );
-  const filteredEntries = useMemo(
+  // 家族是与可用性正交的一层：两者可叠加（「有配额」且「Gemini」）。
+  const familyCounts = useMemo(
+    () => buildFamilyCounts(scopedEntries, getQuota),
+    [scopedEntries, getQuota]
+  );
+  const availabilityFilteredEntries = useMemo(
     () => filterEntriesByAvailability(scopedEntries, availabilityFilter, getQuota),
     [scopedEntries, availabilityFilter, getQuota]
+  );
+  const filteredEntries = useMemo(
+    () => filterEntriesByFamily(availabilityFilteredEntries, familyFilter, getQuota),
+    [availabilityFilteredEntries, familyFilter, getQuota]
   );
 
   const resolveNextRecovery = useCallback(
     (entry: QuotaFileEntry) => nextRecoveryMs(entry.type, getQuota(entry), sortNow),
     [getQuota, sortNow]
   );
+  // 周限额排序键只看「还剩多少」，与时间无关，所以不依赖 sortNow —— 那个
+  // 分钟时钟不该让它每分钟换一次身份。
+  const resolveWeeklyRemaining = useCallback(
+    (entry: QuotaFileEntry) => {
+      const quota = getQuota(entry);
+      if (!quota || quota.status !== 'success') return null;
+      // 目前只有 antigravity 以「家族 + 窗口」组织数据，也只有它有周限额。
+      if (entry.type !== 'antigravity') return null;
+      return weeklyRemainingMin((quota as { groups?: never[] }).groups ?? []);
+    },
+    [getQuota]
+  );
   // 排序在分页之前：否则「最快恢复」只在当前页内成立。
   const sortedEntries = useMemo(
-    () => sortQuotaEntries(filteredEntries, sortMode, resolveNextRecovery),
-    [filteredEntries, sortMode, resolveNextRecovery]
+    () => sortQuotaEntries(filteredEntries, sortMode, resolveNextRecovery, resolveWeeklyRemaining),
+    [filteredEntries, sortMode, resolveNextRecovery, resolveWeeklyRemaining]
   );
 
   const { pageItems, currentPage, totalPages } = useMemo(
@@ -209,6 +239,13 @@ export function QuotaPage() {
     setAvailabilityFilter(next);
     setPage(1);
     writeQuotaUiState({ availabilityFilter: next });
+  }, []);
+
+  const handleFamilyFilterChange = useCallback((next: string) => {
+    if (!isQuotaFamilyFilter(next)) return;
+    setFamilyFilter(next);
+    setPage(1);
+    writeQuotaUiState({ familyFilter: next });
   }, []);
 
   // 搜索词不入 sessionStorage：额度页是「点开即看」的巡检页，
@@ -237,6 +274,20 @@ export function QuotaPage() {
         label: `${t(`quota_management.availability_filter_${filter}`)} (${availabilityCounts[filter]})`,
       })),
     [t, availabilityCounts]
+  );
+
+  // 家族筛选。计数只统计已加载额度的凭证 —— 家族是从载荷分组名推出来的，
+  // 没加载就没有家族可言。
+  const familyOptions = useMemo(
+    () =>
+      QUOTA_FAMILY_FILTERS.map((filter) => ({
+        value: filter,
+        label:
+          filter === 'all'
+            ? t('quota_management.family_filter_all')
+            : `${t(`quota_management.family_filter_${filter}`)} (${familyCounts[filter]})`,
+      })),
+    [t, familyCounts]
   );
 
   const { loadedCount, attentionCount } = useMemo(() => {
@@ -537,6 +588,17 @@ export function QuotaPage() {
                 options={availabilityOptions}
                 onChange={handleAvailabilityFilterChange}
                 ariaLabel={t('quota_management.availability_filter_label')}
+                size="sm"
+              />
+            </div>
+            {/* 家族筛选：只看 Gemini 或只看 Claude+GPT。下拉而不是标签，
+                因为顶部已经有三排筛选，再加标签会挤。 */}
+            <div className={styles.sort}>
+              <Select
+                value={familyFilter}
+                options={familyOptions}
+                onChange={handleFamilyFilterChange}
+                ariaLabel={t('quota_management.family_filter_label')}
                 size="sm"
               />
             </div>

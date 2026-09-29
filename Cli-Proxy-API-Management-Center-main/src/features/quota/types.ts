@@ -40,6 +40,8 @@ export interface QuotaClassMap {
   antigravityQuotaGroupHeader: string;
   antigravityQuotaGroupTitle: string;
   antigravityQuotaGroupDescription: string;
+  /** 家族额度用尽的徽章（周限额/5小时）。缺省即健康，不渲染。 */
+  antigravityFamilyBadge: string;
   // 水位条（QuotaMeter）
   quotaBar: string;
   quotaBarFill: string;
@@ -76,6 +78,7 @@ export const QUOTA_CLASS_KEYS: readonly (keyof QuotaClassMap)[] = [
   'antigravityQuotaGroupHeader',
   'antigravityQuotaGroupTitle',
   'antigravityQuotaGroupDescription',
+  'antigravityFamilyBadge',
   'quotaBar',
   'quotaBarFill',
   'quotaBarFillHigh',

@@ -67,38 +67,60 @@ export function filterEntriesBySearch(
 }
 
 /**
- * Order the grid by whichever credential recovers first.
+ * Order the grid by whichever credential recovers first, or by how much weekly
+ * quota it has left.
  *
- * The instant is injected rather than read here: quota lives in the store and
- * arrives asynchronously, and keeping this function store-free is what makes
- * the ordering rules directly testable.
+ * Keys are injected rather than read here: quota lives in the store and arrives
+ * asynchronously, and keeping this function store-free is what makes the
+ * ordering rules directly testable.
  *
- * Credentials with no instant — not loaded yet, failed, or reporting no
- * upcoming reset — sink to the bottom rather than sorting as "now". They keep
- * their incoming provider-grouped order, so the unloaded tail still reads like
- * the default view instead of an arbitrary shuffle. Because loading is
- * click-to-fetch, that tail is most of the list until the user asks for data.
+ * Both comparators share one shape, which is the contract callers rely on:
  *
- * The original index is the final tiebreak, making stability an asserted
- * property rather than an assumption about the engine's sort.
+ * - A credential with no key — not loaded yet, failed, or reporting nothing —
+ *   sinks to the bottom rather than sorting as "now" or as "empty". It keeps its
+ *   incoming provider-grouped order, so the unloaded tail still reads like the
+ *   default view instead of an arbitrary shuffle. Because loading is
+ *   click-to-fetch, that tail is most of the list until the user asks for data.
+ * - The original index is the final tiebreak in EVERY branch, making stability
+ *   an asserted property rather than an assumption about the engine's sort.
+ *
+ * The two keys answer opposite questions and must not be merged: `soonest` is a
+ * TIME (when does capacity return), `weekly` is a CAPACITY (how much is left).
+ * A full weekly bucket that resets in 20 minutes is nearly first under one and
+ * nearly last under the other, and both orderings are correct for their question.
  */
 export function sortQuotaEntries(
   entries: QuotaFileEntry[],
   mode: QuotaSortMode,
-  resolveNextRecoveryMs: (entry: QuotaFileEntry) => number | null
+  resolveNextRecoveryMs: (entry: QuotaFileEntry) => number | null,
+  resolveWeeklyRemaining?: (entry: QuotaFileEntry) => number | null
 ): QuotaFileEntry[] {
-  if (mode !== 'soonest') return [...entries];
+  if (mode === 'default') return [...entries];
 
   // Decorate once — resolving pokes at provider-shaped state per entry.
-  return entries
-    .map((entry, index) => ({ entry, index, atMs: resolveNextRecoveryMs(entry) }))
+  const decorated = entries.map((entry, index) => ({
+    entry,
+    index,
+    atMs: mode === 'soonest' ? resolveNextRecoveryMs(entry) : null,
+    weekly: mode === 'weekly' ? (resolveWeeklyRemaining?.(entry) ?? null) : null,
+  }));
+
+  return decorated
     .sort((a, b) => {
+      if (mode === 'weekly') {
+        if (a.weekly === null && b.weekly === null) return a.index - b.index;
+        if (a.weekly === null) return 1;
+        if (b.weekly === null) return -1;
+        // Descending: most remaining first.
+        return b.weekly - a.weekly || a.index - b.index;
+      }
+
       if (a.atMs === null && b.atMs === null) return a.index - b.index;
       if (a.atMs === null) return 1;
       if (b.atMs === null) return -1;
       return a.atMs - b.atMs || a.index - b.index;
     })
-    .map((decorated) => decorated.entry);
+    .map((item) => item.entry);
 }
 
 export function buildTabCounts(entries: QuotaFileEntry[]): Record<string, number> {

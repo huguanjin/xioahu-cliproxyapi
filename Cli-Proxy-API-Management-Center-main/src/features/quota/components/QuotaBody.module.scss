@@ -168,6 +168,23 @@
   color: var(--text-quaternary);
 }
 
+/* 家族额度用尽徽章。宿主的 header 是 column，所以它是第三行。
+   只在用尽时出现 —— 缺省即健康，不额外声明「充足」。 */
+.antigravityFamilyBadge {
+  align-self: flex-start;
+  margin-top: 1px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-family: $font-mono;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--warning-text);
+  border: 1px solid var(--warning-border);
+  background: var(--warning-bg);
+  white-space: nowrap;
+}
+
 @include mobile {
   .quotaRowHeader {
     flex-direction: column;

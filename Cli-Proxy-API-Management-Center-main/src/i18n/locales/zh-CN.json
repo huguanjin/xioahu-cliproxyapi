@@ -496,7 +496,13 @@
     "quota_summary_credits_only": "其中 {{count}} 个仅通过积分回退可用",
     "credits_label": "AI 点数",
     "credits_value": "{{amount}}",
-    "credits_unavailable": "已用尽"
+    "credits_unavailable": "已用尽",
+    "family_weekly_spent": "周限额用尽",
+    "family_5h_spent": "5 小时限额用尽",
+    "family_recovers_in": "{{duration}}后恢复",
+    "family_stale": "可刷新",
+    "family_unknown_time": "恢复时间未知",
+    "family_badge_hint": "根据最近一次额度查询。代理不会据此拦截请求。"
   },
   "claude_quota": {
     "title": "Claude 额度",
@@ -1362,7 +1368,12 @@
     "scan_retries_label": "重试失败项次数",
     "scan_retries_hint": "每个失败凭证最多重试几次，逐个进行。填 0 表示不重试，直接采用首轮结果。",
     "scan_retry_progress": "第 {{round}}/{{rounds}} 轮 · {{completed}}/{{total}}",
-    "scan_retry_working": "正在逐个重试失败项"
+    "scan_retry_working": "正在逐个重试失败项",
+    "sort_weekly": "周限额从多到少",
+    "family_filter_label": "模型家族",
+    "family_filter_all": "全部家族",
+    "family_filter_gemini": "Gemini",
+    "family_filter_claude": "Claude + GPT"
   },
   "plugin_management": {
     "title": "插件管理",

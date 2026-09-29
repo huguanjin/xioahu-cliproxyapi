@@ -47,35 +47,56 @@ afterAll(() => {
 
 describe('quota ui state', () => {
   test('round-trips every preference', () => {
-    writeQuotaUiState({ tab: 'codex', sortMode: 'soonest', availabilityFilter: 'exhausted' });
+    writeQuotaUiState({
+      tab: 'codex',
+      sortMode: 'soonest',
+      availabilityFilter: 'exhausted',
+      familyFilter: 'gemini',
+    });
     expect(readQuotaUiState()).toEqual({
       tab: 'codex',
       sortMode: 'soonest',
       availabilityFilter: 'exhausted',
+      familyFilter: 'gemini',
     });
+  });
+
+  test('accepts the weekly sort mode', () => {
+    // 新模式加进 QUOTA_SORT_MODES 的那一刻，这个校验集合就跟着扩展了 ——
+    // 不需要单独改 uiState。
+    writeQuotaUiState({ sortMode: 'weekly' });
+    expect(readQuotaUiState()?.sortMode).toBe('weekly');
   });
 
   test('writing one preference preserves the others', () => {
     writeQuotaUiState({ sortMode: 'soonest' });
     writeQuotaUiState({ tab: 'kimi' });
     writeQuotaUiState({ availabilityFilter: 'failed' });
+    writeQuotaUiState({ familyFilter: 'claude' });
 
     expect(readQuotaUiState()).toEqual({
       tab: 'kimi',
       sortMode: 'soonest',
       availabilityFilter: 'failed',
+      familyFilter: 'claude',
     });
   });
 
   test('rejects values that are not part of the current contract', () => {
     storage.setItem(
       KEY,
-      JSON.stringify({ tab: 'not-a-tab', sortMode: 'by-vibes', availabilityFilter: 'maybe' })
+      JSON.stringify({
+        tab: 'not-a-tab',
+        sortMode: 'by-vibes',
+        availabilityFilter: 'maybe',
+        familyFilter: 'gpt',
+      })
     );
     expect(readQuotaUiState()).toEqual({
       tab: undefined,
       sortMode: undefined,
       availabilityFilter: undefined,
+      familyFilter: undefined,
     });
   });
 

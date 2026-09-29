@@ -35,6 +35,44 @@ export const QUOTA_AVAILABILITY_FILTERS = [
 export type QuotaAvailabilityFilter = (typeof QUOTA_AVAILABILITY_FILTERS)[number];
 
 /**
+ * 按模型家族筛选凭证。
+ *
+ * Antigravity is the only provider that partitions quota by model family, and
+ * the two pools are independent — a credential can be out of Gemini for the week
+ * while its Claude+GPT pool is untouched. "Which credentials can still serve
+ * Gemini" is therefore a real question that the availability filter cannot
+ * answer: that one asks whether a credential can serve ANYTHING, and a
+ * Gemini-exhausted / Claude-healthy credential correctly reads as available
+ * there.
+ *
+ * The family filter is a separate axis rather than a sixth availability value
+ * because the two compose: "has quota" AND "Gemini" is a meaningful pair, and
+ * folding them into one list would make it unaskable.
+ */
+export const QUOTA_FAMILY_FILTERS = ['all', 'gemini', 'claude'] as const;
+
+export type QuotaFamilyFilter = (typeof QUOTA_FAMILY_FILTERS)[number];
+
+export const isQuotaFamilyFilter = (value: unknown): value is QuotaFamilyFilter =>
+  typeof value === 'string' && (QUOTA_FAMILY_FILTERS as readonly string[]).includes(value);
+
+/**
+ * 上游的分组名 → 家族。匹配是宽松的：上游标签是自由文本。
+ *
+ * Matched on the family words rather than the exact upstream strings, because
+ * the payload's own labels are free text and a renamed group would otherwise
+ * vanish from every family — silently, since an unmatched group is simply not
+ * filtered.
+ */
+export function familyOfGroupLabel(label: string | undefined): 'gemini' | 'claude' | 'other' {
+  const normalized = (label ?? '').trim().toLowerCase();
+  if (!normalized) return 'other';
+  if (normalized.includes('claude') || normalized.includes('gpt')) return 'claude';
+  if (normalized.includes('gemini')) return 'gemini';
+  return 'other';
+}
+
+/**
  * What the quota state says about one credential's capacity.
  *
  * - `available`  — fetched, and at least one window still has capacity.
@@ -146,6 +184,47 @@ export function filterEntriesByAvailability(
   return entries.filter(
     (entry) => classifyQuotaAvailability(entry.type, quotaFor(entry)) === filter
   );
+}
+
+/**
+ * 按家族筛选。没有该家族的凭证在不选 'all' 时会被排除。
+ *
+ * A credential with no loaded quota counts as belonging to every family it has,
+ * and an antigravity credential with no quota loaded yet cannot be classified —
+ * so it is excluded from a specific family rather than guessed into one. Asking
+ * "show me the Gemini credentials" and getting back credentials whose Gemini
+ * state is unknown would be answering a different question.
+ */
+export function filterEntriesByFamily(
+  entries: QuotaFileEntry[],
+  family: QuotaFamilyFilter,
+  quotaFor: (entry: QuotaFileEntry) => { status?: string; groups?: { label?: string }[] } | undefined
+): QuotaFileEntry[] {
+  if (family === 'all') return entries;
+  return entries.filter((entry) => entryHasFamily(entry, family, quotaFor));
+}
+
+export function entryHasFamily(
+  entry: QuotaFileEntry,
+  family: Exclude<QuotaFamilyFilter, 'all'>,
+  quotaFor: (entry: QuotaFileEntry) => { status?: string; groups?: { label?: string }[] } | undefined
+): boolean {
+  const quota = quotaFor(entry);
+  if (!quota || quota.status !== 'success') return false;
+  return (quota.groups ?? []).some((group) => familyOfGroupLabel(group.label) === family);
+}
+
+/** 每个家族有哪些凭证，用于筛选标签上的计数。 */
+export function buildFamilyCounts(
+  entries: QuotaFileEntry[],
+  quotaFor: (entry: QuotaFileEntry) => { status?: string; groups?: { label?: string }[] } | undefined
+): Record<QuotaFamilyFilter, number> {
+  const counts: Record<QuotaFamilyFilter, number> = { all: entries.length, gemini: 0, claude: 0 };
+  for (const entry of entries) {
+    if (entryHasFamily(entry, 'gemini', quotaFor)) counts.gemini += 1;
+    if (entryHasFamily(entry, 'claude', quotaFor)) counts.claude += 1;
+  }
+  return counts;
 }
 
 /**

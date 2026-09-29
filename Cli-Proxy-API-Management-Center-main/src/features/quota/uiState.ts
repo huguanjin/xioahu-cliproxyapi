@@ -4,13 +4,19 @@ import {
   type QuotaSortMode,
   type QuotaTabId,
 } from './constants';
-import { isQuotaAvailabilityFilter, type QuotaAvailabilityFilter } from './availability';
+import {
+  isQuotaAvailabilityFilter,
+  isQuotaFamilyFilter,
+  type QuotaAvailabilityFilter,
+  type QuotaFamilyFilter,
+} from './availability';
 
 /** 额度页 UI 偏好：会话级持久化（sessionStorage），跨会话不携带。 */
 export type QuotaUiState = {
   tab?: QuotaTabId;
   sortMode?: QuotaSortMode;
   availabilityFilter?: QuotaAvailabilityFilter;
+  familyFilter?: QuotaFamilyFilter;
 };
 
 const QUOTA_UI_STATE_KEY = 'quotaPage.uiState';
@@ -37,6 +43,7 @@ export const readQuotaUiState = (): QuotaUiState | null => {
       availabilityFilter: isQuotaAvailabilityFilter(parsed.availabilityFilter)
         ? parsed.availabilityFilter
         : undefined,
+      familyFilter: isQuotaFamilyFilter(parsed.familyFilter) ? parsed.familyFilter : undefined,
     };
   } catch {
     return null;

@@ -1,10 +1,14 @@
 import { describe, expect, test } from 'bun:test';
 import {
   buildAvailabilityCounts,
+  buildFamilyCounts,
   classifyQuotaAvailability,
   collectRemainingPercents,
+  familyOfGroupLabel,
   filterEntriesByAvailability,
+  filterEntriesByFamily,
   isQuotaAvailabilityFilter,
+  isQuotaFamilyFilter,
   type QuotaAvailability,
 } from '@/features/quota/availability';
 import type { QuotaFileEntry } from '@/features/quota/logic';
@@ -180,6 +184,69 @@ describe('buildAvailabilityCounts', () => {
       failed: 0,
       unloaded: 0,
     });
+  });
+});
+
+describe('family filters', () => {
+  const entry = (name: string): QuotaFileEntry =>
+    ({ file: { name, provider: 'antigravity' } as AuthFileItem, type: 'antigravity' }) as QuotaFileEntry;
+
+  const withGroups = (labels: string[]) => ({
+    status: 'success',
+    groups: labels.map((label) => ({ id: label, label, buckets: [] })),
+  });
+
+  const entries = [entry('both'), entry('gemini-only'), entry('claude-only'), entry('none')];
+  const quotas: Record<string, { status?: string; groups?: { label?: string }[] }> = {
+    both: withGroups(['gemini models', 'claude and gpt models']),
+    'gemini-only': withGroups(['gemini models']),
+    'claude-only': withGroups(['claude and gpt models']),
+    none: { status: 'error' },
+  };
+  const quotaFor = (target: QuotaFileEntry) => quotas[target.file.name];
+
+  test('all returns everything', () => {
+    expect(filterEntriesByFamily(entries, 'all', quotaFor)).toHaveLength(4);
+  });
+
+  test('selects the credentials that have the family', () => {
+    const names = (family: 'gemini' | 'claude') =>
+      filterEntriesByFamily(entries, family, quotaFor).map((e) => e.file.name);
+
+    expect(names('gemini')).toEqual(['both', 'gemini-only']);
+    expect(names('claude')).toEqual(['both', 'claude-only']);
+  });
+
+  test('a credential with no loaded quota belongs to no family', () => {
+    // 问「给我看 Gemini 的凭证」，返回一个 Gemini 状态未知的凭证是答非所问。
+    expect(filterEntriesByFamily([entry('none')], 'gemini', quotaFor)).toHaveLength(0);
+  });
+
+  test('counts each family over the given list', () => {
+    expect(buildFamilyCounts(entries, quotaFor)).toEqual({ all: 4, gemini: 2, claude: 2 });
+  });
+
+  test('maps upstream labels loosely, since they are free text', () => {
+    // 分组名是自由文本；写死精确匹配会让上游改个名就整族消失 —— 而且是静默的。
+    expect(familyOfGroupLabel('gemini models')).toBe('gemini');
+    expect(familyOfGroupLabel('Gemini Models')).toBe('gemini');
+    expect(familyOfGroupLabel('claude and gpt models')).toBe('claude');
+    expect(familyOfGroupLabel('Claude & GPT')).toBe('claude');
+    expect(familyOfGroupLabel('something else')).toBe('other');
+    expect(familyOfGroupLabel(undefined)).toBe('other');
+    expect(familyOfGroupLabel('')).toBe('other');
+  });
+
+  test('GPT is filed with Claude, not with Gemini', () => {
+    // 上游把 gpt-oss 和 claude 放在同一个池子里，卡片标签也是这么写的。
+    expect(familyOfGroupLabel('gpt-oss models')).toBe('claude');
+  });
+
+  test('rejects values outside the contract', () => {
+    expect(isQuotaFamilyFilter('gemini')).toBe(true);
+    expect(isQuotaFamilyFilter('all')).toBe(true);
+    expect(isQuotaFamilyFilter('gpt')).toBe(false);
+    expect(isQuotaFamilyFilter(undefined)).toBe(false);
   });
 });
 

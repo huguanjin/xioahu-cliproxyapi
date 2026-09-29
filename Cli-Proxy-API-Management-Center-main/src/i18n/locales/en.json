@@ -496,7 +496,13 @@
     "quota_summary_credits_only": "{{count}} via credits fallback only",
     "credits_label": "AI credits",
     "credits_value": "{{amount}}",
-    "credits_unavailable": "none left"
+    "credits_unavailable": "none left",
+    "family_weekly_spent": "Weekly spent",
+    "family_5h_spent": "5-hour spent",
+    "family_recovers_in": "recovers in {{duration}}",
+    "family_stale": "refresh to update",
+    "family_unknown_time": "reset time unknown",
+    "family_badge_hint": "From the most recent quota fetch. The proxy does not block requests based on this."
   },
   "claude_quota": {
     "title": "Claude Quota",
@@ -1362,7 +1368,12 @@
     "scan_retries_label": "Retry failed credentials",
     "scan_retries_hint": "How many times to retry each failure, one at a time. Set 0 to skip retrying and keep the first-pass result.",
     "scan_retry_progress": "Round {{round}}/{{rounds}} · {{completed}}/{{total}}",
-    "scan_retry_working": "Retrying failures one at a time"
+    "scan_retry_working": "Retrying failures one at a time",
+    "sort_weekly": "Weekly quota (high to low)",
+    "family_filter_label": "Model family",
+    "family_filter_all": "All families",
+    "family_filter_gemini": "Gemini",
+    "family_filter_claude": "Claude + GPT"
   },
   "plugin_management": {
     "title": "Plugin Management",

@@ -489,7 +489,13 @@
     "quota_summary_credits_only": "{{count}} только через резервные кредиты",
     "credits_label": "AI-кредиты",
     "credits_value": "{{amount}}",
-    "credits_unavailable": "исчерпаны"
+    "credits_unavailable": "исчерпаны",
+    "family_weekly_spent": "Недельная исчерпана",
+    "family_5h_spent": "5-часовая исчерпана",
+    "family_recovers_in": "восстановится через {{duration}}",
+    "family_stale": "обновите данные",
+    "family_unknown_time": "время сброса неизвестно",
+    "family_badge_hint": "По последнему запросу квоты. Прокси не блокирует запросы на основании этого."
   },
   "claude_quota": {
     "title": "Квота Claude",
@@ -1349,7 +1355,12 @@
     "scan_retries_label": "Повторов для неудачных",
     "scan_retries_hint": "Сколько раз повторять каждый неудачный запрос — по одному. 0 — не повторять и оставить результат первой попытки.",
     "scan_retry_progress": "Круг {{round}}/{{rounds}} · {{completed}}/{{total}}",
-    "scan_retry_working": "Повтор неудачных по одному"
+    "scan_retry_working": "Повтор неудачных по одному",
+    "sort_weekly": "Недельная квота (по убыванию)",
+    "family_filter_label": "Семейство моделей",
+    "family_filter_all": "Все семейства",
+    "family_filter_gemini": "Gemini",
+    "family_filter_claude": "Claude + GPT"
   },
   "plugin_management": {
     "title": "Управление плагинами",
