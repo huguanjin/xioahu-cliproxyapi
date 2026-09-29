@@ -21,6 +21,7 @@ import { statusBarDataFromRecentRequests } from '@/utils/recentRequests';
 import { formatFileSize } from '@/utils/format';
 import {
   QUOTA_PROVIDER_TYPES,
+  formatBlockedRetry,
   formatModified,
   getAuthFileIcon,
   getAuthFileStatusMessage,
@@ -128,6 +129,7 @@ export function AuthFileCard(props: AuthFileCardProps) {
 
   // 自检判定徽标。healthy 之外的三种都是「现在调不通」，统一样式。
   const selfTestVerdict = file.selfTestVerdict;
+  const blockedModels = file.blockedModels ?? [];
   const verdictClass =
     selfTestVerdict === 'healthy' ? styles.verdictHealthy : styles.verdictProblem;
 
@@ -322,6 +324,34 @@ export function AuthFileCard(props: AuthFileCardProps) {
             {isConnectivityTesting && <LoadingSpinner size={12} />}
             <span>{connectivityText}</span>
           </div>
+        )}
+        {/*
+          哪些模型现在不可调度，以及原因。这是「这张凭证挂了」背后的细节：
+          cooldown = 窗口用完了，等着就行；blocked = 别的原因，可能要人处理。
+          只列被挡住的模型，健康的多数不铺出来。
+        */}
+        {blockedModels.length > 0 && (
+          <ul className={styles.blockedModels}>
+            {blockedModels.map((entry) => (
+              <li key={entry.id} className={styles.blockedModelRow}>
+                <span className={styles.blockedModelName} title={entry.status_message}>
+                  {entry.id}
+                </span>
+                <span
+                  className={
+                    entry.reason === 'cooldown'
+                      ? styles.blockedModelCooldown
+                      : styles.blockedModelBlocked
+                  }
+                >
+                  {entry.reason === 'cooldown'
+                    ? t('auth_files.blocked_model_cooldown')
+                    : t('auth_files.blocked_model_blocked')}
+                  {entry.retry_at ? ` · ${formatBlockedRetry(entry.retry_at)}` : ''}
+                </span>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
 

@@ -449,7 +449,9 @@
     "quota_refresh_single": "重新整理配額",
     "quota_refresh_hint": "僅重新整理該驗證檔案的配額",
     "quota_refresh_success": "已重新整理「{{name}}」的配額",
-    "quota_refresh_failed": "重新整理「{{name}}」的配額失敗：{{message}}"
+    "quota_refresh_failed": "重新整理「{{name}}」的配額失敗：{{message}}",
+    "blocked_model_cooldown": "冷卻中",
+    "blocked_model_blocked": "被擋住"
   },
   "antigravity_subscription": {
     "plan_unknown": "未知",

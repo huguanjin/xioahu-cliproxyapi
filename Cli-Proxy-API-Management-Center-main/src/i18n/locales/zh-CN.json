@@ -449,7 +449,9 @@
     "quota_refresh_single": "刷新额度",
     "quota_refresh_hint": "仅刷新该认证文件的额度",
     "quota_refresh_success": "已刷新 \"{{name}}\" 的额度",
-    "quota_refresh_failed": "刷新 \"{{name}}\" 的额度失败：{{message}}"
+    "quota_refresh_failed": "刷新 \"{{name}}\" 的额度失败：{{message}}",
+    "blocked_model_cooldown": "冷却中",
+    "blocked_model_blocked": "被挡住"
   },
   "antigravity_subscription": {
     "plan_unknown": "未知",

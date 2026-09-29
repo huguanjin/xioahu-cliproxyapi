@@ -644,3 +644,54 @@
     transform: none;
   }
 }
+
+/* ---------- 不可调度的模型 ---------- */
+
+/* 只列被挡住的模型。行高压缩到与 health 区块一致：多数凭证是空的，真出现
+   时也不该把卡片撑成一屏。 */
+.blockedModels {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.blockedModelRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-family: $font-mono;
+  font-size: 10.5px;
+  line-height: 1.45;
+  min-width: 0;
+}
+
+/* 模型名可能很长（claude-opus-4-6-thinking），截断而不是换行 —— 换行会让
+   多模型凭证的行数失控。完整值在 title 里。 */
+.blockedModelName {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* 原因与模型名同等重要，所以不截断。 */
+.blockedModelCooldown,
+.blockedModelBlocked {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* 冷却 = 等窗口恢复，属于预期内；被挡住 = 需要留意。两者用不同颜色区分，
+   否则一眼扫过去分不出哪些该等、哪些该查。 */
+.blockedModelCooldown {
+  color: var(--warning-color);
+}
+
+.blockedModelBlocked {
+  color: var(--viz-failure);
+}

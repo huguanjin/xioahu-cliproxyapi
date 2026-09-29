@@ -3,7 +3,11 @@
  */
 
 import { apiClient } from './client';
-import type { AuthFilesResponse, SelfTestVerdict } from '@/types/authFile';
+import type {
+  AuthFilesResponse,
+  BlockedModelEntry,
+  SelfTestVerdict,
+} from '@/types/authFile';
 import type { OAuthModelAliasEntry } from '@/types';
 import { normalizeOAuthProviderKey } from '@/utils/providerKeys';
 import {
@@ -393,6 +397,39 @@ const readRuntimeOnlyField = (entry: AuthFileEntry): boolean => {
  * camelCase 字段上。原始字段全部透传——quota resolvers 仍直接读
  * plan_type / id_token / metadata / attributes 等生字段。
  */
+/**
+ * 归一化后端下发的 blocked_models。
+ *
+ * A malformed entry is dropped rather than defaulted: this list drives an
+ * operator's decision about which model is unusable, and a row with a guessed
+ * reason would be worse than a missing one. The array itself is omitted when
+ * nothing parses, so the UI can branch on presence instead of on emptiness.
+ */
+const normalizeBlockedModels = (raw: unknown): { blockedModels?: BlockedModelEntry[] } => {
+  if (!Array.isArray(raw)) return {};
+  const entries = raw
+    .map((item): BlockedModelEntry | null => {
+      if (!isRecord(item)) return null;
+      const id = typeof item.id === 'string' ? item.id.trim() : '';
+      if (!id) return null;
+      const reason = item.reason === 'cooldown' ? 'cooldown' : 'blocked';
+      const retryAt = typeof item.retry_at === 'string' ? item.retry_at.trim() : '';
+      const message =
+        typeof item.status_message === 'string' ? item.status_message.trim() : '';
+      return {
+        id,
+        reason,
+        ...(retryAt ? { retry_at: retryAt } : {}),
+        ...(message ? { status_message: message } : {}),
+      };
+    })
+    .filter((item): item is BlockedModelEntry => item !== null);
+  return entries.length > 0 ? { blockedModels: entries } : {};
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
 const normalizeAuthFileEntry = (entry: AuthFileEntry): AuthFileEntry => {
   const declaredStatusMessage =
     typeof entry.statusMessage === 'string' ? entry.statusMessage.trim() : '';
@@ -438,6 +475,7 @@ const normalizeAuthFileEntry = (entry: AuthFileEntry): AuthFileEntry => {
       : { selfTestNextProbeAt: selfTestNextProbeAt as string | number }),
     ...(entry['self_test_auto_disabled'] === true ? { selfTestAutoDisabled: true } : {}),
     ...(selfTestAutoDisableReason ? { selfTestAutoDisableReason } : {}),
+    ...normalizeBlockedModels(entry['blocked_models']),
   };
 };
 

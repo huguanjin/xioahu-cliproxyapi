@@ -319,6 +319,20 @@ export const formatModified = (item: AuthFileItem): string => {
   return Number.isNaN(date.getTime()) ? '-' : date.toLocaleString();
 };
 
+/**
+ * 被挡住的模型何时恢复（后端 blocked_models[].retry_at，RFC3339）。
+ *
+ * 用本地时间而不是倒计时：这个值随每次列表刷新重算，而卡片不会自己滴答，
+ * 显示「2 小时后」会随着时间过去越来越不准。绝对时刻不会过期。
+ *
+ * 解析失败返回空串，调用方据此整段省略 —— 显示原始 ISO 字符串对操作者
+ * 没有意义，显示「Invalid Date」更糟。
+ */
+export const formatBlockedRetry = (raw: string): string => {
+  const date = parseTimestamp(raw);
+  return date === null || Number.isNaN(date.getTime()) ? '' : date.toLocaleString();
+};
+
 // 检查模型是否被 OAuth 排除
 export const isModelExcluded = (
   modelId: string,

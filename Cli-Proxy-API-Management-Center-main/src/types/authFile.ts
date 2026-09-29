@@ -79,7 +79,28 @@ export interface AuthFileItem {
   selfTestAutoDisabled?: boolean;
   /** 触发自动停用的上游信息。 */
   selfTestAutoDisableReason?: string;
+  /**
+   * 当前不可调度的模型清单（后端 blocked_models）。仅在确实有模型被挡住时下发。
+   *
+   * 这是「这张凭证挂了」背后的细节：是某个模型的窗口用完了（cooldown，等就行），
+   * 还是别的原因挡住了（blocked，可能要人处理）。两者对操作者的含义完全不同。
+   *
+   * 未列出的模型就是可用的 —— 只报坏的那几个，不把健康的多数也铺一屏。
+   */
+  blockedModels?: BlockedModelEntry[];
   [key: string]: unknown;
+}
+
+/** 一个不可调度的模型（后端 blockedModelEntry）。 */
+export interface BlockedModelEntry {
+  /** 模型 id，与模型注册表一致。 */
+  id: string;
+  /** cooldown=窗口/配额用尽，等恢复；blocked=其它原因，可能需要人工。 */
+  reason: 'cooldown' | 'blocked';
+  /** 恢复可调度的时间（RFC3339）。无已知期限时后端不下发该字段。 */
+  retry_at?: string;
+  /** 上游给出的描述，若有。 */
+  status_message?: string;
 }
 
 /** 自检判定（后端 SelfTestVerdict）。未探测过时后端不下发该字段。 */

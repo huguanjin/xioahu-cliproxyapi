@@ -361,6 +361,14 @@ func (h *Handler) buildAuthFileEntryLocked(auth *coreauth.Auth) gin.H {
 	entry["success"] = auth.Success
 	entry["failed"] = auth.Failed
 	entry["recent_requests"] = auth.RecentRequestsSnapshot(time.Now())
+	// Surface which models this credential cannot serve right now, and why.
+	// The summary tiles already reduce this same walk to two booleans; this is
+	// the detail behind a credential that reads as "down", so the operator can
+	// tell a spent window on one model from a credential that needs a human.
+	// Omitted entirely when nothing is blocked, which is the common case.
+	if blocked := blockedModelsForAuth(auth, time.Now()); len(blocked) > 0 {
+		entry["blocked_models"] = blocked
+	}
 	// Surface the last self-test verdict so the UI can filter the pool by health.
 	// The verdict is what the scheduled sweep concluded, which is a different
 	// question from whether live traffic recently failed: a credential can be
