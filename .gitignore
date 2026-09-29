@@ -33,6 +33,10 @@ test/testpingzheng/*
 # Scratch runtime for local self-test runs: a throwaway config plus a copy of
 # those same credential files.
 .selftest-tmp/
+# Reference checkouts of sibling projects, kept locally for reading. Third-party
+# source is not ours to vendor, and these trees are thousands of files.
+test/sub2api-main/
+test/*-main/
 
 # Documentation
 docs/*
