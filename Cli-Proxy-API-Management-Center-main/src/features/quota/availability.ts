@@ -23,6 +23,7 @@
 
 import type { QuotaProviderType } from './providers/types';
 import type { QuotaFileEntry } from './logic';
+import { familyWindowOf, isBucketSpent } from './providers/antigravity/familyState';
 
 export const QUOTA_AVAILABILITY_FILTERS = [
   'all',
@@ -57,6 +58,28 @@ export const isQuotaFamilyFilter = (value: unknown): value is QuotaFamilyFilter 
   typeof value === 'string' && (QUOTA_FAMILY_FILTERS as readonly string[]).includes(value);
 
 /**
+ * 家族筛选的细分：任一 / 周限额未耗尽 / 周限额已耗尽。
+ *
+ * Scoped to the WEEKLY window because that is the one that gates the family for
+ * days. A spent 5-hour window clears in minutes and is worth waiting out, so
+ * treating it as "this family is unavailable" would hide credentials that are
+ * about to be perfectly usable.
+ *
+ * `hasWeeklyQuota` is answered from the payload, not from routing — see
+ * familyState.ts for why those are different claims.
+ */
+export const QUOTA_FAMILY_SCOPE_FILTERS = [
+  'all',
+  'weekly_available',
+  'weekly_exhausted',
+] as const;
+
+export type QuotaFamilyScopeFilter = (typeof QUOTA_FAMILY_SCOPE_FILTERS)[number];
+
+export const isQuotaFamilyScopeFilter = (value: unknown): value is QuotaFamilyScopeFilter =>
+  typeof value === 'string' && (QUOTA_FAMILY_SCOPE_FILTERS as readonly string[]).includes(value);
+
+/**
  * 上游的分组名 → 家族。匹配是宽松的：上游标签是自由文本。
  *
  * Matched on the family words rather than the exact upstream strings, because
@@ -70,6 +93,42 @@ export function familyOfGroupLabel(label: string | undefined): 'gemini' | 'claud
   if (normalized.includes('claude') || normalized.includes('gpt')) return 'claude';
   if (normalized.includes('gemini')) return 'gemini';
   return 'other';
+}
+
+/** 一个家族的周限额状态。unknown 表示没有可读的周限额桶。 */
+export type FamilyWeeklyStatus = 'available' | 'exhausted' | 'unknown';
+
+/**
+ * 某个家族的周限额是否还有余量。
+ *
+ * Reads the family's WEEKLY bucket only. A family with several weekly buckets is
+ * exhausted when ANY of them is spent — they are the same pool from the caller's
+ * point of view, and reporting "available" because one bucket of several still
+ * has room would be the optimistic direction, which is the wrong way to be wrong
+ * when the answer decides whether a credential is filtered out.
+ *
+ * Unknown is returned rather than a guess: a family with no readable weekly
+ * bucket is neither available nor exhausted, and both defaults are harmful —
+ * "available" would leave an unknown credential in a list the operator is
+ * using to find usable capacity, and "exhausted" would flag a healthy one.
+ */
+export function familyWeeklyStatus(
+  groups: readonly { label?: string; buckets?: { window?: string; periodHours?: number | null; remainingFraction?: number | null }[] }[] | undefined,
+  family: 'gemini' | 'claude'
+): FamilyWeeklyStatus {
+  let sawWeekly = false;
+  for (const group of groups ?? []) {
+    if (familyOfGroupLabel(group.label) !== family) continue;
+    for (const bucket of group.buckets ?? []) {
+      if (familyWindowOf(bucket) !== 'weekly') continue;
+      if (typeof bucket.remainingFraction !== 'number' || !Number.isFinite(bucket.remainingFraction)) {
+        continue;
+      }
+      sawWeekly = true;
+      if (isBucketSpent(bucket)) return 'exhausted';
+    }
+  }
+  return sawWeekly ? 'available' : 'unknown';
 }
 
 /**
@@ -198,10 +257,49 @@ export function filterEntriesByAvailability(
 export function filterEntriesByFamily(
   entries: QuotaFileEntry[],
   family: QuotaFamilyFilter,
-  quotaFor: (entry: QuotaFileEntry) => { status?: string; groups?: { label?: string }[] } | undefined
+  quotaFor: (entry: QuotaFileEntry) => { status?: string; groups?: { label?: string }[] } | undefined,
+  scope: QuotaFamilyScopeFilter = 'all'
 ): QuotaFileEntry[] {
   if (family === 'all') return entries;
-  return entries.filter((entry) => entryHasFamily(entry, family, quotaFor));
+  return entries.filter((entry) => {
+    if (!entryHasFamily(entry, family, quotaFor)) return false;
+    if (scope === 'all') return true;
+
+    const status = familyWeeklyStatus(
+      quotaFor(entry)?.groups as Parameters<typeof familyWeeklyStatus>[0],
+      family
+    );
+    // unknown never satisfies either side: a family whose weekly bucket could
+    // not be read is not evidence of capacity, and not evidence of exhaustion.
+    return scope === 'weekly_available'
+      ? status === 'available'
+      : status === 'exhausted';
+  });
+}
+
+/**
+ * 每个家族各有多少凭证处于「周限额未耗尽 / 已耗尽」。
+ *
+ * Counted in one pass over the entries rather than by calling the filter twice,
+ * so the numbers on the labels cannot drift from the lists they open.
+ */
+export function buildFamilyScopeCounts(
+  entries: QuotaFileEntry[],
+  quotaFor: (entry: QuotaFileEntry) => { status?: string; groups?: { label?: string }[] } | undefined,
+  family: Exclude<QuotaFamilyFilter, 'all'>
+): { available: number; exhausted: number } {
+  let available = 0;
+  let exhausted = 0;
+  for (const entry of entries) {
+    if (!entryHasFamily(entry, family, quotaFor)) continue;
+    const status = familyWeeklyStatus(
+      quotaFor(entry)?.groups as Parameters<typeof familyWeeklyStatus>[0],
+      family
+    );
+    if (status === 'available') available += 1;
+    else if (status === 'exhausted') exhausted += 1;
+  }
+  return { available, exhausted };
 }
 
 export function entryHasFamily(

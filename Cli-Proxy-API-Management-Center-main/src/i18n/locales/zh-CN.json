@@ -1373,7 +1373,11 @@
     "family_filter_label": "模型家族",
     "family_filter_all": "全部家族",
     "family_filter_gemini": "Gemini",
-    "family_filter_claude": "Claude + GPT"
+    "family_filter_claude": "Claude + GPT",
+    "family_scope_label": "周限额",
+    "family_scope_all": "不限周限额",
+    "family_scope_weekly_available": "周限额未耗尽（{{count}}）",
+    "family_scope_weekly_exhausted": "周限额已耗尽（{{count}}）"
   },
   "plugin_management": {
     "title": "插件管理",

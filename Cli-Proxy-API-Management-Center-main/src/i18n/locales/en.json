@@ -1373,7 +1373,11 @@
     "family_filter_label": "Model family",
     "family_filter_all": "All families",
     "family_filter_gemini": "Gemini",
-    "family_filter_claude": "Claude + GPT"
+    "family_filter_claude": "Claude + GPT",
+    "family_scope_label": "Weekly quota",
+    "family_scope_all": "Any weekly state",
+    "family_scope_weekly_available": "Weekly left ({{count}})",
+    "family_scope_weekly_exhausted": "Weekly spent ({{count}})"
   },
   "plugin_management": {
     "title": "Plugin Management",

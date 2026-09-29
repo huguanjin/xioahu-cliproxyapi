@@ -7,8 +7,10 @@ import {
 import {
   isQuotaAvailabilityFilter,
   isQuotaFamilyFilter,
+  isQuotaFamilyScopeFilter,
   type QuotaAvailabilityFilter,
   type QuotaFamilyFilter,
+  type QuotaFamilyScopeFilter,
 } from './availability';
 
 /** 额度页 UI 偏好：会话级持久化（sessionStorage），跨会话不携带。 */
@@ -17,6 +19,7 @@ export type QuotaUiState = {
   sortMode?: QuotaSortMode;
   availabilityFilter?: QuotaAvailabilityFilter;
   familyFilter?: QuotaFamilyFilter;
+  familyScope?: QuotaFamilyScopeFilter;
 };
 
 const QUOTA_UI_STATE_KEY = 'quotaPage.uiState';
@@ -44,6 +47,7 @@ export const readQuotaUiState = (): QuotaUiState | null => {
         ? parsed.availabilityFilter
         : undefined,
       familyFilter: isQuotaFamilyFilter(parsed.familyFilter) ? parsed.familyFilter : undefined,
+      familyScope: isQuotaFamilyScopeFilter(parsed.familyScope) ? parsed.familyScope : undefined,
     };
   } catch {
     return null;

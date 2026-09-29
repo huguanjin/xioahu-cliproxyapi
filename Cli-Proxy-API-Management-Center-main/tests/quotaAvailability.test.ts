@@ -2,13 +2,16 @@ import { describe, expect, test } from 'bun:test';
 import {
   buildAvailabilityCounts,
   buildFamilyCounts,
+  buildFamilyScopeCounts,
   classifyQuotaAvailability,
   collectRemainingPercents,
   familyOfGroupLabel,
+  familyWeeklyStatus,
   filterEntriesByAvailability,
   filterEntriesByFamily,
   isQuotaAvailabilityFilter,
   isQuotaFamilyFilter,
+  isQuotaFamilyScopeFilter,
   type QuotaAvailability,
 } from '@/features/quota/availability';
 import type { QuotaFileEntry } from '@/features/quota/logic';
@@ -247,6 +250,92 @@ describe('family filters', () => {
     expect(isQuotaFamilyFilter('all')).toBe(true);
     expect(isQuotaFamilyFilter('gpt')).toBe(false);
     expect(isQuotaFamilyFilter(undefined)).toBe(false);
+  });
+});
+
+describe('family weekly scope filter', () => {
+  const entry = (name: string): QuotaFileEntry =>
+    ({ file: { name, provider: 'antigravity' } as AuthFileItem, type: 'antigravity' }) as QuotaFileEntry;
+
+  const weekly = (fraction: number) => ({ window: 'weekly', periodHours: 168, remainingFraction: fraction });
+  const fiveHour = (fraction: number) => ({ window: '5h', periodHours: 5, remainingFraction: fraction });
+
+  const gemini = (buckets: unknown[]) => ({ label: 'gemini models', buckets });
+  const claude = (buckets: unknown[]) => ({ label: 'claude and gpt models', buckets });
+
+  const entries = [entry('full'), entry('gemini-dry'), entry('claude-dry'), entry('loading')];
+  const quotas: Record<string, unknown> = {
+    full: { status: 'success', groups: [gemini([weekly(1), fiveHour(1)]), claude([weekly(0.5), fiveHour(1)])] },
+    'gemini-dry': { status: 'success', groups: [gemini([weekly(0), fiveHour(1)]), claude([weekly(0.9), fiveHour(1)])] },
+    'claude-dry': { status: 'success', groups: [gemini([weekly(0.9), fiveHour(1)]), claude([weekly(0), fiveHour(1)])] },
+    loading: { status: 'idle' },
+  };
+  const quotaFor = (target: QuotaFileEntry) => quotas[target.file.name] as never;
+
+  const names = (family: 'gemini' | 'claude', scope: 'all' | 'weekly_available' | 'weekly_exhausted') =>
+    filterEntriesByFamily(entries, family, quotaFor, scope).map((e) => e.file.name);
+
+  test('the whole point: find credentials whose family weekly quota is NOT spent', () => {
+    // 这是操作者要的列表 —— 还能拿这个家族干活的凭证。
+    expect(names('gemini', 'weekly_available')).toEqual(['full', 'claude-dry']);
+    expect(names('claude', 'weekly_available')).toEqual(['full', 'gemini-dry']);
+  });
+
+  test('the exhausted side excludes them', () => {
+    expect(names('gemini', 'weekly_exhausted')).toEqual(['gemini-dry']);
+    expect(names('claude', 'weekly_exhausted')).toEqual(['claude-dry']);
+  });
+
+  test('a spent 5-hour window does NOT count as the family being exhausted', () => {
+    // 5 小时窗口几分钟就恢复了，把它当成「这个家族不可用」会藏掉马上就能用的
+    // 凭证 —— 那正是这个筛选要避免的误导。
+    const soon: Record<string, unknown> = {
+      only5h: { status: 'success', groups: [gemini([weekly(1), fiveHour(0)])] },
+    };
+    const list = [entry('only5h')];
+    expect(
+      filterEntriesByFamily(list, 'gemini', (t) => soon[t.file.name] as never, 'weekly_available')
+    ).toHaveLength(1);
+    expect(
+      filterEntriesByFamily(list, 'gemini', (t) => soon[t.file.name] as never, 'weekly_exhausted')
+    ).toHaveLength(0);
+  });
+
+  test('an unreadable weekly status satisfies neither side', () => {
+    // unknown 既不是「有额度」也不是「没额度」。当成有额度会把状态未知的凭证
+    // 混进「可用」列表；当成没额度会把健康的标成耗尽。
+    expect(names('gemini', 'weekly_available')).not.toContain('loading');
+    expect(names('gemini', 'weekly_exhausted')).not.toContain('loading');
+  });
+
+  test('a family with several weekly buckets is exhausted if ANY is spent', () => {
+    // 乐观方向在这里是错的方向。
+    const multi: Record<string, unknown> = {
+      multi: { status: 'success', groups: [gemini([weekly(1), weekly(0)])] },
+    };
+    const list = [entry('multi')];
+    expect(
+      filterEntriesByFamily(list, 'gemini', (t) => multi[t.file.name] as never, 'weekly_exhausted')
+    ).toHaveLength(1);
+  });
+
+  test('scope has no effect when the family is 全部', () => {
+    // 「全部家族」下这两个细分没有共同含义，所以不参与筛选。
+    expect(filterEntriesByFamily(entries, 'all', quotaFor, 'weekly_exhausted')).toHaveLength(4);
+  });
+
+  test('counts each side of the split', () => {
+    expect(buildFamilyScopeCounts(entries, quotaFor, 'gemini')).toEqual({
+      available: 2,
+      exhausted: 1,
+    });
+  });
+
+  test('rejects values outside the scope contract', () => {
+    expect(isQuotaFamilyScopeFilter('weekly_available')).toBe(true);
+    expect(isQuotaFamilyScopeFilter('weekly_exhausted')).toBe(true);
+    expect(isQuotaFamilyScopeFilter('available')).toBe(false);
+    expect(isQuotaFamilyScopeFilter(undefined)).toBe(false);
   });
 });
 

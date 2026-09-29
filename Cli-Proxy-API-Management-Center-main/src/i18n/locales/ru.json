@@ -1360,7 +1360,11 @@
     "family_filter_label": "Семейство моделей",
     "family_filter_all": "Все семейства",
     "family_filter_gemini": "Gemini",
-    "family_filter_claude": "Claude + GPT"
+    "family_filter_claude": "Claude + GPT",
+    "family_scope_label": "Недельная квота",
+    "family_scope_all": "Любое состояние",
+    "family_scope_weekly_available": "Осталась недельная ({{count}})",
+    "family_scope_weekly_exhausted": "Недельная исчерпана ({{count}})"
   },
   "plugin_management": {
     "title": "Управление плагинами",

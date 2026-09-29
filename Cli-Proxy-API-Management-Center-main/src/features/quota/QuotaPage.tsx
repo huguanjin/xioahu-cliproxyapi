@@ -43,14 +43,18 @@ import {
 import {
   buildAvailabilityCounts,
   buildFamilyCounts,
+  buildFamilyScopeCounts,
   filterEntriesByAvailability,
   filterEntriesByFamily,
   isQuotaAvailabilityFilter,
   isQuotaFamilyFilter,
+  isQuotaFamilyScopeFilter,
   QUOTA_AVAILABILITY_FILTERS,
   QUOTA_FAMILY_FILTERS,
+  QUOTA_FAMILY_SCOPE_FILTERS,
   type QuotaAvailabilityFilter,
   type QuotaFamilyFilter,
+  type QuotaFamilyScopeFilter,
 } from './availability';
 import { weeklyRemainingMin } from './providers/antigravity/familyState';
 import {
@@ -97,6 +101,9 @@ export function QuotaPage() {
   );
   const [familyFilter, setFamilyFilter] = useState<QuotaFamilyFilter>(
     () => readQuotaUiState()?.familyFilter ?? 'all'
+  );
+  const [familyScope, setFamilyScope] = useState<QuotaFamilyScopeFilter>(
+    () => readQuotaUiState()?.familyScope ?? 'all'
   );
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
@@ -191,8 +198,8 @@ export function QuotaPage() {
     [scopedEntries, availabilityFilter, getQuota]
   );
   const filteredEntries = useMemo(
-    () => filterEntriesByFamily(availabilityFilteredEntries, familyFilter, getQuota),
-    [availabilityFilteredEntries, familyFilter, getQuota]
+    () => filterEntriesByFamily(availabilityFilteredEntries, familyFilter, getQuota, familyScope),
+    [availabilityFilteredEntries, familyFilter, familyScope, getQuota]
   );
 
   const resolveNextRecovery = useCallback(
@@ -248,6 +255,13 @@ export function QuotaPage() {
     writeQuotaUiState({ familyFilter: next });
   }, []);
 
+  const handleFamilyScopeChange = useCallback((next: string) => {
+    if (!isQuotaFamilyScopeFilter(next)) return;
+    setFamilyScope(next);
+    setPage(1);
+    writeQuotaUiState({ familyScope: next });
+  }, []);
+
   // 搜索词不入 sessionStorage：额度页是「点开即看」的巡检页，
   // 残留的关键字会让刷新后的空网格看起来像凭证丢了。
   const handleSearchChange = useCallback((next: string) => {
@@ -288,6 +302,31 @@ export function QuotaPage() {
             : `${t(`quota_management.family_filter_${filter}`)} (${familyCounts[filter]})`,
       })),
     [t, familyCounts]
+  );
+
+  // 周限额细分。只在选定某个家族时出现 —— 「全部家族」下这两个数字没有
+  // 共同含义。计数由当前家族决定，所以标签上的数字与点开后看到的列表一致。
+  const familyScopeCounts = useMemo(
+    () =>
+      familyFilter === 'all' ? null : buildFamilyScopeCounts(scopedEntries, getQuota, familyFilter),
+    [scopedEntries, getQuota, familyFilter]
+  );
+  const familyScopeOptions = useMemo(
+    () =>
+      QUOTA_FAMILY_SCOPE_FILTERS.map((filter) => ({
+        value: filter,
+        label:
+          filter === 'weekly_available'
+            ? t('quota_management.family_scope_weekly_available', {
+                count: familyScopeCounts?.available ?? 0,
+              })
+            : filter === 'weekly_exhausted'
+              ? t('quota_management.family_scope_weekly_exhausted', {
+                  count: familyScopeCounts?.exhausted ?? 0,
+                })
+              : t('quota_management.family_scope_all'),
+      })),
+    [t, familyScopeCounts]
   );
 
   const { loadedCount, attentionCount } = useMemo(() => {
@@ -602,6 +641,19 @@ export function QuotaPage() {
                 size="sm"
               />
             </div>
+            {/* 周限额细分：选家族后才出现。「未耗尽」是操作者真正要的列表 ——
+                还能拿这个家族干活的凭证。 */}
+            {familyFilter !== 'all' && (
+              <div className={styles.sort}>
+                <Select
+                  value={familyScope}
+                  options={familyScopeOptions}
+                  onChange={handleFamilyScopeChange}
+                  ariaLabel={t('quota_management.family_scope_label')}
+                  size="sm"
+                />
+              </div>
+            )}
           </div>
         </div>
 
