@@ -301,6 +301,8 @@
     "problem_filter_problem": "Пробл.",
     "problem_filter_disabled": "Откл.",
     "no_proxy_filter_label": "Без прокси",
+    "region_filter_label": "Ограничение региона",
+    "region_restricted_hint": "Регион выхода этого файла авторизации не поддерживается Google. Смените его прокси, чтобы восстановить доступ.",
     "status_code_filter_label": "Фильтр по коду состояния",
     "status_code_filter_all": "Все коды",
     "selftest_button": "Пакетный тест",

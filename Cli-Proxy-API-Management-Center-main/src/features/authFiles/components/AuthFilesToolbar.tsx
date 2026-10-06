@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
-import { IconPlug, IconSatellite, IconSearch, IconSlidersHorizontal, IconTrash2 } from '@/components/ui/icons';
+import { IconNetwork, IconPlug, IconSatellite, IconSearch, IconSlidersHorizontal, IconTrash2 } from '@/components/ui/icons';
 import {
   ABSOLUTE_MAX_CARD_PAGE_SIZE,
   MIN_CARD_PAGE_SIZE,
@@ -27,6 +27,9 @@ export type AuthFilesToolbarProps = {
   onHealthFilterChange: (mode: AuthFilesHealthFilterMode) => void;
   noProxyOnly: boolean;
   onNoProxyOnlyChange: (value: boolean) => void;
+  regionRestrictedOnly: boolean;
+  regionRestrictedCount: number;
+  onRegionRestrictedOnlyChange: (value: boolean) => void;
   statusCodeFilter: string;
   statusCodeOptions: Array<{ value: string; label: string }>;
   onStatusCodeFilterChange: (value: string) => void;
@@ -72,6 +75,9 @@ export function AuthFilesToolbar(props: AuthFilesToolbarProps) {
     onHealthFilterChange,
     noProxyOnly,
     onNoProxyOnlyChange,
+    regionRestrictedOnly,
+    regionRestrictedCount,
+    onRegionRestrictedOnlyChange,
     statusCodeFilter,
     statusCodeOptions,
     onStatusCodeFilterChange,
@@ -200,6 +206,24 @@ export function AuthFilesToolbar(props: AuthFilesToolbarProps) {
       >
         <IconPlug size={14} />
         <span>{t('auth_files.no_proxy_filter_label')}</span>
+      </button>
+
+      {/*
+        区域限制：与「未绑定代理」同款开关，和其他筛选是 AND 叠加，所以两者一起开就能
+        圈出「直连出口且被限制」的那一批。计数与点开后的结果同一个谓词。
+      */}
+      <button
+        type="button"
+        className={`${styles.proxyFilter} ${regionRestrictedOnly ? styles.proxyFilterActive : ''}`}
+        aria-pressed={regionRestrictedOnly}
+        title={t('auth_files.region_restricted_hint')}
+        onClick={() => onRegionRestrictedOnlyChange(!regionRestrictedOnly)}
+      >
+        <IconNetwork size={14} />
+        <span>
+          {t('auth_files.region_filter_label')}
+          {regionRestrictedCount > 0 ? ` ${regionRestrictedCount}` : ''}
+        </span>
       </button>
 
       {/*

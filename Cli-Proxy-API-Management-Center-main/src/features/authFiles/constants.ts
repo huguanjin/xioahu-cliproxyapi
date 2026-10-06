@@ -161,16 +161,37 @@ export const isAuthFileUntested = (file: AuthFileItem): boolean =>
   file.selfTestVerdict === undefined;
 
 /**
+ * 后端对「出口区域不被支持」打的标记，与 sdk/cliproxy/auth 的
+ * locationUnsupportedErrorCode 保持一致。
+ */
+export const LOCATION_UNSUPPORTED_ERROR_CODE = 'location_unsupported';
+
+/**
+ * 最近一次上游失败是否为「出口区域不被支持」（Google 的 FAILED_PRECONDITION）。
+ *
+ * 这种限制跟着凭证的出口（代理）走：换个出口就能恢复，既不是账号被封，
+ * 也不是请求内容的问题。只认后端严格结构化识别后打下的机器码，不看
+ * status_message 文案——文案可能是任何上游文本，拿来匹配会误伤。
+ */
+export const isAuthFileLocationRestricted = (file: AuthFileItem): boolean =>
+  String(file.lastErrorCode ?? file['last_error_code'] ?? '').trim() ===
+  LOCATION_UNSUPPORTED_ERROR_CODE;
+
+/**
  * 是否为需要用户处理的问题凭证。
  * 主动停用是独立状态，不应进入“问题”筛选或“删除问题凭证”的批量操作。
  *
  * 这里刻意不把自检判定算进来：该函数同时驱动「删除问题凭证」批量删除，
  * 让全池扫描的结论进入删除集合会扩大一次破坏性操作的范围。健康筛选
  * 走 isAuthFileKnownBad，两者互不影响。
+ *
+ * 同理排除区域限制：换代理即可恢复，不是该删的坏凭证。它被打上标记后会因
+ * status === 'error' 自动落入问题集合，必须在这里显式挡住；它有自己的筛选。
  */
 export const isProblemAuthFile = (file: AuthFileItem): boolean => {
   const status = typeof file.status === 'string' ? file.status.trim().toLowerCase() : '';
   if (file.disabled === true || status === 'disabled') return false;
+  if (isAuthFileLocationRestricted(file)) return false;
   return file.unavailable === true || status === 'error' || hasAuthFileStatusWarning(file);
 };
 

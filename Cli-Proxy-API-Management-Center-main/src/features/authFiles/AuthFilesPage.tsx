@@ -20,6 +20,7 @@ import {
   hasAuthFileProxy,
   isAuthFileKnownBad,
   isAuthFileKnownHealthy,
+  isAuthFileLocationRestricted,
   isAuthFileUntested,
   isProblemAuthFile,
   isRuntimeOnlyAuthFile,
@@ -100,6 +101,7 @@ export function AuthFilesPage() {
   const [statusFilterMode, setStatusFilterMode] = useState<AuthFilesStatusFilterMode>('all');
   const [healthFilterMode, setHealthFilterMode] = useState<AuthFilesHealthFilterMode>('all');
   const [noProxyOnly, setNoProxyOnly] = useState(false);
+  const [regionRestrictedOnly, setRegionRestrictedOnly] = useState(false);
   const [statusCodeFilter, setStatusCodeFilter] = useState<string>('all');
   const [compactMode, setCompactMode] = useState(false);
   const [search, setSearch] = useState('');
@@ -259,6 +261,9 @@ export function AuthFilesPage() {
       if (typeof persisted.noProxyOnly === 'boolean') {
         setNoProxyOnly(persisted.noProxyOnly);
       }
+      if (typeof persisted.regionRestrictedOnly === 'boolean') {
+        setRegionRestrictedOnly(persisted.regionRestrictedOnly);
+      }
       if (isAuthFilesHealthFilterMode(persisted.healthFilterMode)) {
         setHealthFilterMode(persisted.healthFilterMode);
       }
@@ -310,6 +315,7 @@ export function AuthFilesPage() {
       problemOnly,
       disabledOnly,
       noProxyOnly,
+      regionRestrictedOnly,
       healthFilterMode,
       statusCodeFilter,
       compactMode,
@@ -328,6 +334,7 @@ export function AuthFilesPage() {
     filter,
     maxPageSize,
     noProxyOnly,
+    regionRestrictedOnly,
     healthFilterMode,
     statusCodeFilter,
     page,
@@ -450,6 +457,11 @@ export function AuthFilesPage() {
     setPage(1);
   }, []);
 
+  const handleRegionRestrictedOnlyChange = useCallback((value: boolean) => {
+    setRegionRestrictedOnly(value);
+    setPage(1);
+  }, []);
+
   const handleStatusCodeFilterChange = useCallback((value: string) => {
     setStatusCodeFilter(value);
     setPage(1);
@@ -498,6 +510,7 @@ export function AuthFilesPage() {
         if (disabledOnly && file.disabled !== true) return false;
         if (problemOnly && !isProblemAuthFile(file)) return false;
         if (noProxyOnly && hasAuthFileProxy(file)) return false;
+        if (regionRestrictedOnly && !isAuthFileLocationRestricted(file)) return false;
         if (healthFilterMode === 'healthy' && !isAuthFileKnownHealthy(file)) return false;
         if (healthFilterMode === 'problem' && !isAuthFileKnownBad(file)) return false;
         if (healthFilterMode === 'untested' && !isAuthFileUntested(file)) return false;
@@ -514,6 +527,7 @@ export function AuthFilesPage() {
       healthFilterMode,
       noProxyOnly,
       problemOnly,
+      regionRestrictedOnly,
       statusCodeFilter,
     ]
   );
@@ -612,6 +626,11 @@ export function AuthFilesPage() {
 
   const activeCount = useMemo(() => files.filter((file) => file.disabled !== true).length, [files]);
   const problemCount = useMemo(() => files.filter(isProblemAuthFile).length, [files]);
+  // 与「区域限制」筛选同一个谓词，所以计数就是点开筛选后会看到的条数。
+  const regionRestrictedCount = useMemo(
+    () => files.filter(isAuthFileLocationRestricted).length,
+    [files]
+  );
 
   /* ---------- 首屏卡片一次性级联入场 ----------
    * 首批数据渲染后立即翻转 cardsAnimated；已挂载的卡片在挂载时捕获过
@@ -680,6 +699,7 @@ export function AuthFilesPage() {
     setFilter('all');
     setStatusFilterMode('all');
     setNoProxyOnly(false);
+    setRegionRestrictedOnly(false);
     setStatusCodeFilter('all');
     setSearch('');
     setPage(1);
@@ -768,6 +788,9 @@ export function AuthFilesPage() {
           onHealthFilterChange={setHealthFilterMode}
           noProxyOnly={noProxyOnly}
           onNoProxyOnlyChange={handleNoProxyOnlyChange}
+          regionRestrictedOnly={regionRestrictedOnly}
+          regionRestrictedCount={regionRestrictedCount}
+          onRegionRestrictedOnlyChange={handleRegionRestrictedOnlyChange}
           statusCodeFilter={statusCodeFilter}
           statusCodeOptions={statusCodeOptions}
           onStatusCodeFilterChange={handleStatusCodeFilterChange}

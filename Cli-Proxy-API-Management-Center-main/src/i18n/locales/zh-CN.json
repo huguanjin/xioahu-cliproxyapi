@@ -302,6 +302,8 @@
     "problem_filter_problem": "问题",
     "problem_filter_disabled": "停用",
     "no_proxy_filter_label": "未绑定代理",
+    "region_filter_label": "区域限制",
+    "region_restricted_hint": "该凭证的出口所在地区不被 Google 支持，更换它的代理即可恢复。",
     "status_code_filter_label": "状态码筛选",
     "status_code_filter_all": "全部状态码",
     "selftest_button": "批量测试",

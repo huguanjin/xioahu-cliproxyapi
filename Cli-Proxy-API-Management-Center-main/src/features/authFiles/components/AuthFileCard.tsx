@@ -29,6 +29,7 @@ import {
   hasAuthFileStatusWarning,
   getTypeColor,
   getTypeLabel,
+  isAuthFileLocationRestricted,
   isRuntimeOnlyAuthFile,
   isThemeSurfaceIconProvider,
   normalizeProviderKey,
@@ -126,6 +127,11 @@ export function AuthFileCard(props: AuthFileCardProps) {
 
   const rawStatusMessage = getAuthFileStatusMessage(file);
   const hasStatusWarning = hasAuthFileStatusWarning(file);
+  // 区域限制的 status_message 只是一个机器码，卡片上换成能读懂的说明；原码留在悬浮里。
+  const regionRestricted = isAuthFileLocationRestricted(file);
+  const statusWarningText = regionRestricted
+    ? t('auth_files.region_restricted_hint')
+    : rawStatusMessage;
 
   // 自检判定徽标。healthy 之外的三种都是「现在调不通」，统一样式。
   const selfTestVerdict = file.selfTestVerdict;
@@ -277,7 +283,7 @@ export function AuthFileCard(props: AuthFileCardProps) {
       {rawStatusMessage && hasStatusWarning && (
         <div className={styles.warning} title={rawStatusMessage}>
           <IconInfo className={styles.warningIcon} size={14} />
-          <span>{rawStatusMessage}</span>
+          <span>{statusWarningText}</span>
         </div>
       )}
 
@@ -297,6 +303,18 @@ export function AuthFileCard(props: AuthFileCardProps) {
               {typeof file.selfTestStrikes === 'number' && file.selfTestStrikes > 0
                 ? ` ${file.selfTestStrikes}`
                 : ''}
+            </span>
+          )}
+          {/*
+            区域限制徽标：来自实时请求的识别，不是批量测试的判定，所以与上面的
+            自检徽标并列而不合并。样式与「问题」徽标一致，提示里说明可通过换代理恢复。
+          */}
+          {regionRestricted && (
+            <span
+              className={`${styles.verdictBadge} ${styles.verdictProblem}`}
+              title={t('auth_files.region_restricted_hint')}
+            >
+              {t('auth_files.region_filter_label')}
             </span>
           )}
           <span className={styles.healthCounts}>

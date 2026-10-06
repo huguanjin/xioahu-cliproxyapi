@@ -19,6 +19,11 @@ export type AuthFilesUiState = {
   statusFilterMode?: AuthFilesStatusFilterMode;
   noProxyOnly?: boolean;
   /**
+   * 只看「出口区域不被支持」的凭证。与其他筛选叠加（AND），所以可以和
+   * 「未绑定代理」一起用，圈出直连出口的那一批。
+   */
+  regionRestrictedOnly?: boolean;
+  /**
    * 健康筛选：基于自检判定的「可正常调用 / 确定调不通 / 从未探测」。
    *
    * 'untested' 是独立一项而不是并进 'healthy'：没测过的凭证并非可用，

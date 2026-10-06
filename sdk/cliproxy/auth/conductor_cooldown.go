@@ -20,6 +20,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/thinking"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
 	log "github.com/sirupsen/logrus"
+	"github.com/tidwall/gjson"
 )
 
 var quotaCooldownDisabled atomic.Bool
@@ -763,6 +764,7 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 			if modelKey != "" {
 				state := ensureModelState(auth, modelKey)
 				resetModelState(state, now)
+				clearLocationUnsupportedStates(auth, now)
 				updateAggregatedAvailability(auth, now)
 				if !hasModelError(auth, now) {
 					auth.LastError = nil
@@ -815,6 +817,17 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 							suspendReason = "invalid_grant"
 							shouldSuspendModel = true
 						}
+					} else if isLocationUnsupportedResultError(result.Error) {
+						// The restriction follows the credential's egress path and clears
+						// when its proxy changes, so rest it for a short fixed window: no
+						// quota ladder, no model suspension, no strike toward auto-disable.
+						if disableCooling {
+							state.NextRetryAfter = time.Time{}
+						} else {
+							state.NextRetryAfter = now.Add(locationUnsupportedCooldown)
+						}
+						state.StatusMessage = locationUnsupportedErrorCode
+						auth.StatusMessage = locationUnsupportedErrorCode
 					} else {
 						switch statusCode {
 						case 401:
@@ -1401,6 +1414,11 @@ func resultErrorFromError(err error) *Error {
 		// Prefer true request-scoped faults (including Claude OAuth cancellation)
 		// over the broader connection-lifecycle classification.
 		resultErr.Code = requestScopedErrorCode
+	case isLocationUnsupportedError(err):
+		// Not a request fault: isRequestInvalidError lets this one through so the
+		// request rotates, and the code makes MarkResult cool this credential for a
+		// short fixed window instead of leaving it untouched.
+		resultErr.Code = locationUnsupportedErrorCode
 	case isConnectionLifecycleError(err):
 		// Preserve lifecycle classification for MarkResult without making the error
 		// request-scoped (which would also stop credential fallback).
@@ -1620,6 +1638,76 @@ func isModelSupportResultError(err *Error) bool {
 		return false
 	}
 	return isModelSupportErrorMessage(err.Message)
+}
+
+// locationUnsupportedMessageNeedle is the phrase Google puts in the message when
+// the request's egress location is not served.
+const locationUnsupportedMessageNeedle = "user location is not supported"
+
+// isLocationUnsupportedMessage reports whether body is Google's structured
+// "User location is not supported" rejection: an rpc Status whose status is
+// FAILED_PRECONDITION and whose message carries the location phrase.
+//
+// Both conditions are required and there is deliberately no free-text fallback.
+// A FAILED_PRECONDITION about something else, or a body that merely quotes the
+// phrase, must never classify a credential: a wrong match would route around a
+// healthy credential and mislabel it in the management UI.
+func isLocationUnsupportedMessage(body string) bool {
+	body = strings.TrimSpace(body)
+	if body == "" || !json.Valid([]byte(body)) {
+		return false
+	}
+	for _, prefix := range []string{"error", "response.error", "body.error"} {
+		status := strings.TrimSpace(gjson.Get(body, prefix+".status").String())
+		if !strings.EqualFold(status, "FAILED_PRECONDITION") {
+			continue
+		}
+		message := strings.ToLower(gjson.Get(body, prefix+".message").String())
+		if strings.Contains(message, locationUnsupportedMessageNeedle) {
+			return true
+		}
+	}
+	return false
+}
+
+// isLocationUnsupportedError reports whether err is the upstream's location
+// rejection. It is a 400 by contract, so any other status is not this error.
+func isLocationUnsupportedError(err error) bool {
+	if err == nil || statusCodeFromError(err) != http.StatusBadRequest {
+		return false
+	}
+	return isLocationUnsupportedMessage(err.Error())
+}
+
+// isLocationUnsupportedResultError reports a result already classified by
+// resultErrorFromError as a location rejection.
+func isLocationUnsupportedResultError(err *Error) bool {
+	return err != nil && err.Code == locationUnsupportedErrorCode
+}
+
+// clearLocationUnsupportedStates lifts the location marker from every model after
+// a request succeeded on the credential. The restriction follows the credential's
+// egress path, so one served request shows it has lifted for all models. Without
+// this each model keeps cooling, and the credential keeps its marker in the
+// management UI, until that model happens to be requested again: a rarely used
+// model would flag a recovered credential for as long as it stays unused.
+func clearLocationUnsupportedStates(auth *Auth, now time.Time) {
+	if auth == nil {
+		return
+	}
+	for _, state := range auth.ModelStates {
+		if state != nil && isLocationUnsupportedResultError(state.LastError) {
+			resetModelState(state, now)
+		}
+	}
+	// Models that still carry a different failure keep the credential in error, but
+	// the location marker itself is stale and must not be what the list reports.
+	if isLocationUnsupportedResultError(auth.LastError) {
+		auth.LastError = nil
+	}
+	if auth.StatusMessage == locationUnsupportedErrorCode {
+		auth.StatusMessage = ""
+	}
 }
 
 func isCloudflareChallengeErrorMessage(message string) bool {
@@ -1866,6 +1954,8 @@ func isMissingModelPhrase(value string) bool {
 // isRequestInvalidError returns true if the error represents a client request
 // error that should neither rotate nor penalize credentials. Model-support
 // errors remain eligible for alternate routing and keep their model-level state.
+// Location rejections are likewise credential-scoped: the restriction follows the
+// credential's egress path, so another credential can serve the same request.
 func isRequestInvalidError(err error) bool {
 	if err == nil {
 		return false
@@ -1880,6 +1970,9 @@ func isRequestInvalidError(err error) bool {
 		return false
 	}
 	if isModelSupportError(err) {
+		return false
+	}
+	if isLocationUnsupportedError(err) {
 		return false
 	}
 	return clienterror.IsRequestFault(statusCodeFromError(err), err)
@@ -1924,6 +2017,15 @@ func applyAuthFailureState(auth *Auth, resultErr *Error, retryAfter *time.Durati
 			auth.NextRetryAfter = time.Time{}
 		} else {
 			auth.NextRetryAfter = now.Add(30 * time.Minute)
+		}
+		return
+	}
+	if isLocationUnsupportedResultError(resultErr) {
+		auth.StatusMessage = locationUnsupportedErrorCode
+		if disableCooling {
+			auth.NextRetryAfter = time.Time{}
+		} else {
+			auth.NextRetryAfter = now.Add(locationUnsupportedCooldown)
 		}
 		return
 	}

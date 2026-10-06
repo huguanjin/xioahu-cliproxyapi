@@ -174,13 +174,14 @@ func (e *credentialRetryLimitExecutor) Calls() int {
 type authFallbackExecutor struct {
 	id string
 
-	mu                sync.Mutex
-	executeCalls      []string
-	streamCalls       []string
-	executeErrors     map[string]error
-	streamFirstErrors map[string]error
-	streamTailErrors  map[string]error
-	countTokenErrors  map[string]error
+	mu                 sync.Mutex
+	executeCalls       []string
+	streamCalls        []string
+	executeErrors      map[string]error
+	streamDirectErrors map[string]error
+	streamFirstErrors  map[string]error
+	streamTailErrors   map[string]error
+	countTokenErrors   map[string]error
 }
 
 func (e *authFallbackExecutor) Identifier() string {
@@ -201,9 +202,17 @@ func (e *authFallbackExecutor) Execute(_ context.Context, auth *Auth, _ cliproxy
 func (e *authFallbackExecutor) ExecuteStream(_ context.Context, auth *Auth, _ cliproxyexecutor.Request, _ cliproxyexecutor.Options) (*cliproxyexecutor.StreamResult, error) {
 	e.mu.Lock()
 	e.streamCalls = append(e.streamCalls, auth.ID)
+	directErr := e.streamDirectErrors[auth.ID]
 	firstErr := e.streamFirstErrors[auth.ID]
 	tailErr := e.streamTailErrors[auth.ID]
 	e.mu.Unlock()
+
+	// A direct error is how an upstream HTTP failure surfaces from executors that
+	// read the response status before opening the stream (Antigravity does), as
+	// opposed to a first-chunk error delivered through the channel.
+	if directErr != nil {
+		return nil, directErr
+	}
 
 	ch := make(chan cliproxyexecutor.StreamChunk, 2)
 	if firstErr != nil {

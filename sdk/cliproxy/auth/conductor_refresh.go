@@ -42,6 +42,11 @@ const (
 	// permanently dead, so the ladder is allowed to grow well past quotaBackoffMax
 	// and quiet the credential down to a couple of retries per day.
 	paymentBackoffMax = 12 * time.Hour
+	// locationUnsupportedCooldown is the fixed, non-escalating window a credential
+	// rests after the upstream reports its egress location as unsupported. Every
+	// expiry costs one failed upstream call per (credential, model), so the default
+	// one-minute transient cooldown would multiply those wasted calls tenfold.
+	locationUnsupportedCooldown = 10 * time.Minute
 )
 
 // StartAutoRefresh launches a background loop that evaluates auth freshness

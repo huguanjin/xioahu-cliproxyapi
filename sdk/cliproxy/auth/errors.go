@@ -11,6 +11,13 @@ const connectionLifecycleErrorCode = "connection_lifecycle"
 // cooling it down only delays the next failure on the same credential.
 const credentialInvalidErrorCode = "credential_invalid"
 
+// locationUnsupportedErrorCode marks the upstream rejection "User location is not
+// supported". The restriction follows the credential's egress path (its proxy),
+// not the request and not the account, so the failure is credential-scoped and
+// recoverable: the request rotates to another credential and this one cools down
+// briefly, without a strike and without being disabled.
+const locationUnsupportedErrorCode = "location_unsupported"
+
 // Error describes an authentication related failure in a provider agnostic format.
 type Error struct {
 	// Code is a short machine readable identifier.

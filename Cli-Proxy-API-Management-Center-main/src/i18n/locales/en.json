@@ -302,6 +302,8 @@
     "problem_filter_problem": "Problem",
     "problem_filter_disabled": "Disabled",
     "no_proxy_filter_label": "No proxy bound",
+    "region_filter_label": "Region restricted",
+    "region_restricted_hint": "This credential's exit location is not supported by Google. Change its proxy to recover it.",
     "status_code_filter_label": "Status code filter",
     "status_code_filter_all": "All status codes",
     "selftest_button": "Batch test",
