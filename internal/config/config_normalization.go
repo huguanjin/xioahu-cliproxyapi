@@ -220,8 +220,24 @@ func (cfg *Config) SanitizeInteractionsKeys() {
 	cfg.InteractionsKey = sanitizeGeminiKeyEntries(cfg.InteractionsKey)
 }
 
-// SanitizeProxyPool trims fields, drops entries without a proxy-url, assigns an ID to
-// entries missing one, and deduplicates by ID (last one wins).
+// NormalizeProxyPoolURL trims a proxy address and prepends "socks5://" when it has no scheme, so
+// "user:pass@host:port" and "host:port" can be entered as is. Addresses that already carry a
+// scheme, and the "direct"/"none" keywords, are returned unchanged.
+func NormalizeProxyPoolURL(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || strings.EqualFold(trimmed, "direct") || strings.EqualFold(trimmed, "none") {
+		return trimmed
+	}
+	// A scheme is the text before the first "://" and cannot contain userinfo or host separators;
+	// this keeps a password that happens to contain "://" from being mistaken for one.
+	if idx := strings.Index(trimmed, "://"); idx > 0 && !strings.ContainsAny(trimmed[:idx], "@:/") {
+		return trimmed
+	}
+	return "socks5://" + trimmed
+}
+
+// SanitizeProxyPool trims fields, drops entries without a proxy-url, defaults a missing scheme
+// to socks5, assigns an ID to entries missing one, and deduplicates by ID (last one wins).
 func (cfg *Config) SanitizeProxyPool() {
 	if cfg == nil {
 		return
@@ -231,7 +247,7 @@ func (cfg *Config) SanitizeProxyPool() {
 	out := entries[:0]
 	for i := range entries {
 		entry := entries[i]
-		entry.ProxyURL = strings.TrimSpace(entry.ProxyURL)
+		entry.ProxyURL = NormalizeProxyPoolURL(entry.ProxyURL)
 		if entry.ProxyURL == "" {
 			continue
 		}

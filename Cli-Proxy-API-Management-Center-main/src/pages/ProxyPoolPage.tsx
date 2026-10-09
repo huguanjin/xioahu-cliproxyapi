@@ -10,7 +10,12 @@ import { IconPencil, IconPlus, IconTrash2 } from '@/components/ui/icons';
 import { SecondaryScreenShell } from '@/components/common/SecondaryScreenShell';
 import { useEdgeSwipeBack } from '@/hooks/useEdgeSwipeBack';
 import { useAuthStore, useNotificationStore } from '@/stores';
-import { proxyPoolApi, type ProxyPoolEntry, type ProxyProbeResult } from '@/services/api';
+import {
+  proxyPoolApi,
+  type ProxyImportReport,
+  type ProxyPoolEntry,
+  type ProxyProbeResult,
+} from '@/services/api';
 import { getErrorMessage } from '@/utils/helpers';
 import styles from './ProxyPoolPage.module.scss';
 
@@ -133,6 +138,74 @@ export function ProxyPoolPage() {
     };
   }, [loadEntries]);
 
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [importPrefix, setImportPrefix] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [importInvalid, setImportInvalid] = useState<ProxyImportReport['invalid']>([]);
+  const importFileRef = useRef<HTMLInputElement | null>(null);
+
+  const openImport = useCallback(() => {
+    setImportText('');
+    setImportPrefix('');
+    setImportInvalid([]);
+    setImportOpen(true);
+  }, []);
+
+  const closeImport = useCallback(() => {
+    if (importing) return;
+    setImportOpen(false);
+  }, [importing]);
+
+  // 选文件只是把内容读进文本框，让用户导入前能看到、改到；真正的解析在后端。
+  const handleImportFile = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = '';
+      if (!file) return;
+      try {
+        const text = await file.text();
+        setImportText((prev) => (prev.trim() ? `${prev.replace(/\s+$/, '')}\n${text}` : text));
+      } catch {
+        showNotification(t('proxy_pool.import_file_failed'), 'error');
+      }
+    },
+    [showNotification, t]
+  );
+
+  const handleImport = useCallback(async () => {
+    if (!importText.trim()) {
+      showNotification(t('proxy_pool.import_empty'), 'error');
+      return;
+    }
+    setImporting(true);
+    try {
+      const report = await proxyPoolApi.import(importText, importPrefix);
+      const invalid = report.invalid ?? [];
+      const message =
+        t('proxy_pool.import_done', { added: report.added, duplicate: report.duplicate }) +
+        (invalid.length > 0 ? t('proxy_pool.import_done_invalid', { invalid: invalid.length }) : '');
+      showNotification(message, invalid.length > 0 ? 'warning' : 'success');
+      await loadEntries();
+      if (invalid.length > 0) {
+        // 留在弹窗里显示无效行，方便改完再导。
+        setImportInvalid(invalid);
+        setImportText(
+          importText
+            .split('\n')
+            .filter((_, index) => invalid.some((item) => item.line === index + 1))
+            .join('\n')
+        );
+      } else {
+        setImportOpen(false);
+      }
+    } catch (err: unknown) {
+      showNotification(`${t('proxy_pool.import_failed')}: ${getErrorMessage(err)}`, 'error');
+    } finally {
+      setImporting(false);
+    }
+  }, [importPrefix, importText, loadEntries, showNotification, t]);
+
   const openCreate = useCallback(() => {
     setEditingId(null);
     setForm(EMPTY_FORM);
@@ -241,6 +314,9 @@ export function ProxyPoolPage() {
             disabled={disableControls || entries.length === 0}
           >
             {t('proxy_pool.test_all')}
+          </Button>
+          <Button variant="secondary" size="sm" onClick={openImport} disabled={disableControls}>
+            {t('proxy_pool.import')}
           </Button>
           <Button size="sm" onClick={openCreate} disabled={disableControls}>
             <IconPlus size={16} />
@@ -354,6 +430,70 @@ export function ProxyPoolPage() {
       )}
 
       <Modal
+        open={importOpen}
+        title={t('proxy_pool.import_title')}
+        onClose={closeImport}
+        closeDisabled={importing}
+        footer={
+          <>
+            <Button variant="secondary" onClick={closeImport} disabled={importing}>
+              {t('common.cancel')}
+            </Button>
+            <Button onClick={() => void handleImport()} loading={importing}>
+              {t('proxy_pool.import_submit')}
+            </Button>
+          </>
+        }
+      >
+        <p className={styles.importHint}>{t('proxy_pool.import_hint')}</p>
+        <textarea
+          className={styles.importTextarea}
+          value={importText}
+          onChange={(e) => setImportText(e.target.value)}
+          placeholder={t('proxy_pool.import_placeholder')}
+          disabled={importing}
+          spellCheck={false}
+          rows={10}
+          aria-label={t('proxy_pool.import_title')}
+        />
+        <input
+          ref={importFileRef}
+          type="file"
+          accept=".txt,text/plain"
+          style={{ display: 'none' }}
+          onChange={(e) => void handleImportFile(e)}
+        />
+        <div>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => importFileRef.current?.click()}
+            disabled={importing}
+          >
+            {t('proxy_pool.import_file')}
+          </Button>
+        </div>
+        <Input
+          label={t('proxy_pool.import_prefix')}
+          value={importPrefix}
+          onChange={(e) => setImportPrefix(e.target.value)}
+          disabled={importing}
+        />
+        {importInvalid && importInvalid.length > 0 && (
+          <div className={styles.importInvalid} role="alert">
+            <strong>{t('proxy_pool.import_invalid_title')}</strong>
+            <ul>
+              {importInvalid.slice(0, 20).map((item) => (
+                <li key={item.line}>
+                  {t('proxy_pool.import_invalid_line', { line: item.line, error: item.error })}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
         open={modalOpen}
         title={modalTitle}
         onClose={closeModal}
@@ -378,6 +518,7 @@ export function ProxyPoolPage() {
         <Input
           label={t('proxy_pool.proxy_url_label')}
           placeholder={t('proxy_pool.proxy_url_placeholder')}
+          hint={t('proxy_pool.proxy_url_hint')}
           value={form.proxyUrl}
           onChange={(e) => setForm((prev) => ({ ...prev, proxyUrl: e.target.value }))}
           disabled={saving}

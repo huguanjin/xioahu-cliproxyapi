@@ -144,7 +144,7 @@ func (h *Handler) TestProxyPool(c *gin.Context) {
 	var targets []config.ProxyPoolEntry
 	switch {
 	case strings.TrimSpace(body.ProxyURL) != "":
-		targets = []config.ProxyPoolEntry{{ID: strings.TrimSpace(body.ID), ProxyURL: strings.TrimSpace(body.ProxyURL)}}
+		targets = []config.ProxyPoolEntry{{ID: strings.TrimSpace(body.ID), ProxyURL: config.NormalizeProxyPoolURL(body.ProxyURL)}}
 	case strings.TrimSpace(body.ID) != "":
 		id := strings.TrimSpace(body.ID)
 		h.mu.Lock()

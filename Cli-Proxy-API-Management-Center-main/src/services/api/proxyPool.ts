@@ -24,6 +24,12 @@ export type ProxyProbeResult = {
   error?: string;
 };
 
+export type ProxyImportReport = {
+  added: number;
+  duplicate: number;
+  invalid?: Array<{ line: number; error: string }>;
+};
+
 // 探测每个代理最长 10s，整池并发 8 路，远超默认的 30s 请求超时。
 const PROXY_TEST_TIMEOUT_MS = 120 * 1000;
 
@@ -61,5 +67,14 @@ export const proxyPoolApi = {
       timeout: PROXY_TEST_TIMEOUT_MS,
     });
     return readProbeResults(data);
+  },
+
+  /** 批量导入：text 每行一个代理，已存在的地址会被跳过。 */
+  async import(text: string, namePrefix?: string): Promise<ProxyImportReport> {
+    const data = await apiClient.post<{ report?: ProxyImportReport }>('/proxy-pool/import', {
+      text,
+      'name-prefix': namePrefix?.trim() || undefined,
+    });
+    return data.report ?? { added: 0, duplicate: 0 };
   },
 };

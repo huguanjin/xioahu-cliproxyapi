@@ -85,3 +85,45 @@ func TestSanitizeProxyPool_NilConfigNoop(t *testing.T) {
 	var cfg *Config
 	cfg.SanitizeProxyPool()
 }
+
+func TestNormalizeProxyPoolURL(t *testing.T) {
+	cases := map[string]string{
+		"":                                  "",
+		"   ":                               "",
+		"user:pass@1.2.3.4:1080":            "socks5://user:pass@1.2.3.4:1080",
+		"  user:pass@1.2.3.4:1080  ":        "socks5://user:pass@1.2.3.4:1080",
+		"1.2.3.4:1080":                      "socks5://1.2.3.4:1080",
+		"proxy.example.com:1080":            "socks5://proxy.example.com:1080",
+		"socks5://u:p@1.2.3.4:1080":         "socks5://u:p@1.2.3.4:1080",
+		"socks5h://1.2.3.4:1080":            "socks5h://1.2.3.4:1080",
+		"http://u:p@1.2.3.4:8080":           "http://u:p@1.2.3.4:8080",
+		"HTTPS://1.2.3.4:443":               "HTTPS://1.2.3.4:443",
+		"direct":                            "direct",
+		"None":                              "None",
+		"user:pa://ss@1.2.3.4:1080":         "socks5://user:pa://ss@1.2.3.4:1080",
+		"[2001:db8::1]:1080":                "socks5://[2001:db8::1]:1080",
+		"user:pass@[2001:db8::1]:1080":      "socks5://user:pass@[2001:db8::1]:1080",
+		"http://user:pa://ss@1.2.3.4:8080/": "http://user:pa://ss@1.2.3.4:8080/",
+	}
+	for in, want := range cases {
+		if got := NormalizeProxyPoolURL(in); got != want {
+			t.Errorf("NormalizeProxyPoolURL(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestSanitizeProxyPool_DefaultsSchemeToSocks5(t *testing.T) {
+	cfg := &Config{ProxyPool: []ProxyPoolEntry{
+		{ID: "a", ProxyURL: "u:p@1.2.3.4:1080"},
+		{ID: "b", ProxyURL: "http://5.6.7.8:8080"},
+	}}
+
+	cfg.SanitizeProxyPool()
+
+	if got := cfg.ProxyPool[0].ProxyURL; got != "socks5://u:p@1.2.3.4:1080" {
+		t.Fatalf("bare address = %q, want socks5 prefix", got)
+	}
+	if got := cfg.ProxyPool[1].ProxyURL; got != "http://5.6.7.8:8080" {
+		t.Fatalf("explicit scheme must be kept, got %q", got)
+	}
+}

@@ -101,3 +101,36 @@
   align-items: center;
   gap: $spacing-xs;
 }
+
+.importHint {
+  margin: 0 0 $spacing-sm;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.importTextarea {
+  width: 100%;
+  min-height: 180px;
+  padding: $spacing-sm;
+  box-sizing: border-box;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+  color: var(--text-primary);
+  background: var(--bg-primary, transparent);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.importInvalid {
+  margin-top: $spacing-sm;
+  font-size: 12px;
+  color: var(--danger-color);
+
+  ul {
+    margin: 4px 0 0;
+    padding-left: 18px;
+  }
+}

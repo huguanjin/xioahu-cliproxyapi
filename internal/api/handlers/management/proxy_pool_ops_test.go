@@ -306,3 +306,26 @@ func TestTestProxyPool(t *testing.T) {
 		t.Fatalf("unsupported scheme must fail: %+v", res)
 	}
 }
+
+func TestPutAndPatchProxyPool_PrefixBareAddressWithSocks5(t *testing.T) {
+	t.Parallel()
+
+	h := &Handler{cfg: &config.Config{}, configFilePath: writeTestConfigFile(t)}
+
+	put := httptest.NewRecorder()
+	pc, _ := gin.CreateTestContext(put)
+	pc.Request = httptest.NewRequest(http.MethodPut, "/v0/management/proxy-pool", strings.NewReader(`[{"id":"a","proxy-url":"user:pass@1.2.3.4:1080"}]`))
+	h.PutProxyPool(pc)
+	if got := h.cfg.ProxyPool[0].ProxyURL; got != "socks5://user:pass@1.2.3.4:1080" {
+		t.Fatalf("PUT stored %q", got)
+	}
+
+	patch := httptest.NewRecorder()
+	cc, _ := gin.CreateTestContext(patch)
+	cc.Request = httptest.NewRequest(http.MethodPatch, "/v0/management/proxy-pool", strings.NewReader(`{"id":"a","value":{"proxy-url":"9.9.9.9:2080"}}`))
+	cc.Request.Header.Set("Content-Type", "application/json")
+	h.PatchProxyPoolEntry(cc)
+	if got := h.cfg.ProxyPool[0].ProxyURL; got != "socks5://9.9.9.9:2080" {
+		t.Fatalf("PATCH stored %q", got)
+	}
+}

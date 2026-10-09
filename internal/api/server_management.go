@@ -94,6 +94,7 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.PATCH("/proxy-pool", s.mgmt.PatchProxyPoolEntry)
 		mgmt.DELETE("/proxy-pool", s.mgmt.DeleteProxyPoolEntry)
 		mgmt.POST("/proxy-pool/test", s.mgmt.TestProxyPool)
+		mgmt.POST("/proxy-pool/import", s.mgmt.ImportProxyPool)
 
 		mgmt.GET("/interactions-api-key", s.mgmt.GetInteractionsKeys)
 		mgmt.PUT("/interactions-api-key", s.mgmt.PutInteractionsKeys)
