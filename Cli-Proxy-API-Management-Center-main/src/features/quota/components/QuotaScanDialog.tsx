@@ -13,15 +13,20 @@ import type { AuthFileItem } from '@/types';
 import type { QuotaFileEntry } from '../logic';
 import { useQuotaScan, pruneQuotaForDisabled } from '../hooks/useQuotaScan';
 import {
+  clampScanConcurrency,
   clampScanRetries,
   defaultSelection,
   DEFAULT_QUOTA_SCAN_TUNING,
+  MAX_QUOTA_SCAN_CONCURRENCY,
   MAX_QUOTA_SCAN_RETRIES,
+  MIN_QUOTA_SCAN_CONCURRENCY,
   MIN_QUOTA_SCAN_RETRIES,
   QUOTA_SCAN_RESULT_VERSION,
   readQuotaScanResult,
+  readStoredScanConcurrency,
   retryPhasePercent,
   writeQuotaScanResult,
+  writeStoredScanConcurrency,
   type QuotaScanFailure,
   type QuotaScanResult,
 } from '../scanLogic';
@@ -71,6 +76,18 @@ export function QuotaScanDialog({ open, onClose, entries, loadQuota }: QuotaScan
     setRetryInput(value);
   }, []);
 
+  // 并发数同理：字符串态 + ref，handleStart 读 ref（原因见 retryInputRef）。
+  // 初值取上次保存的值，所以两处都从同一个来源起步。
+  const [concurrencyInput, setConcurrencyInput] = useState(() =>
+    String(readStoredScanConcurrency())
+  );
+  const concurrencyInputRef = useRef(concurrencyInput);
+
+  const applyConcurrencyInput = useCallback((value: string) => {
+    concurrencyInputRef.current = value;
+    setConcurrencyInput(value);
+  }, []);
+
   const { running, progress, run, cancel } = useQuotaScan(loadQuota);
 
   // 打开时把上次的结果读回来：刷新页面后仍能继续下载/停用。
@@ -98,9 +115,13 @@ export function QuotaScanDialog({ open, onClose, entries, loadQuota }: QuotaScan
     // 见 retryInputRef 的说明。
     const retries = clampScanRetries(retryInputRef.current);
     applyRetryInput(String(retries));
+    const concurrency = clampScanConcurrency(concurrencyInputRef.current);
+    applyConcurrencyInput(String(concurrency));
+    writeStoredScanConcurrency(concurrency);
 
     const outcome = await run(entries, t as TFunction, {
       ...DEFAULT_QUOTA_SCAN_TUNING,
+      batchSize: concurrency,
       maxRetries: retries,
     });
     if (outcome.cancelled) return;
@@ -116,7 +137,7 @@ export function QuotaScanDialog({ open, onClose, entries, loadQuota }: QuotaScan
     setResult(next);
     setSelected(defaultSelection(next.failures));
     writeQuotaScanResult(next);
-  }, [applyRetryInput, disableControls, entries, run, t]);
+  }, [applyConcurrencyInput, applyRetryInput, disableControls, entries, run, t]);
 
   const toggle = useCallback((name: string) => {
     setSelected((prev) => {
@@ -427,6 +448,26 @@ export function QuotaScanDialog({ open, onClose, entries, loadQuota }: QuotaScan
         ) : !result ? (
           <div className={styles.intro}>
             <p>{t('quota_management.scan_description')}</p>
+
+            <div className={styles.setting}>
+              <label className={styles.settingLabel} htmlFor="quota-scan-concurrency">
+                {t('quota_management.scan_concurrency_label')}
+              </label>
+              <Input
+                id="quota-scan-concurrency"
+                value={concurrencyInput}
+                onChange={(event) => applyConcurrencyInput(event.target.value)}
+                type="number"
+                min={MIN_QUOTA_SCAN_CONCURRENCY}
+                max={MAX_QUOTA_SCAN_CONCURRENCY}
+                aria-label={t('quota_management.scan_concurrency_label')}
+              />
+              <p className={styles.settingHint}>
+                {t('quota_management.scan_concurrency_hint', {
+                  max: MAX_QUOTA_SCAN_CONCURRENCY,
+                })}
+              </p>
+            </div>
 
             <div className={styles.setting}>
               <label className={styles.settingLabel} htmlFor="quota-scan-retries">

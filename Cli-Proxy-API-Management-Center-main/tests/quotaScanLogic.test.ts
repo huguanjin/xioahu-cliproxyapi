@@ -2,11 +2,14 @@ import { afterAll, beforeEach, describe, expect, test } from 'bun:test';
 import {
   buildScanFailures,
   chunkEntries,
+  clampScanConcurrency,
   clampScanRetries,
   classifyScanFailure,
   defaultSelection,
   DEFAULT_QUOTA_SCAN_TUNING,
+  MAX_QUOTA_SCAN_CONCURRENCY,
   MAX_QUOTA_SCAN_RETRIES,
+  MIN_QUOTA_SCAN_CONCURRENCY,
   MIN_QUOTA_SCAN_RETRIES,
   QUOTA_SCAN_RESULT_VERSION,
   readQuotaScanResult,
@@ -297,5 +300,27 @@ describe('scan result persistence', () => {
     const clean = { ...result(), failed: 0, failures: [] };
     writeQuotaScanResult(clean);
     expect(readQuotaScanResult()).toEqual(clean);
+  });
+});
+
+describe('clampScanConcurrency', () => {
+  test('keeps values inside the range, truncating decimals', () => {
+    expect(clampScanConcurrency(20)).toBe(20);
+    expect(clampScanConcurrency('500')).toBe(500);
+    expect(clampScanConcurrency(7.9)).toBe(7);
+  });
+
+  test('clamps to the bounds instead of widening to one giant batch', () => {
+    // 0 or negative would make chunkEntries return the whole pool as one batch,
+    // i.e. silently maximum concurrency.
+    expect(clampScanConcurrency(0)).toBe(MIN_QUOTA_SCAN_CONCURRENCY);
+    expect(clampScanConcurrency(-5)).toBe(MIN_QUOTA_SCAN_CONCURRENCY);
+    expect(clampScanConcurrency(999999)).toBe(MAX_QUOTA_SCAN_CONCURRENCY);
+  });
+
+  test('falls back to the default, not the maximum, for unparsable input', () => {
+    for (const bad of ['', 'abc', undefined, null, Number.NaN]) {
+      expect(clampScanConcurrency(bad)).toBe(DEFAULT_QUOTA_SCAN_TUNING.batchSize);
+    }
   });
 });

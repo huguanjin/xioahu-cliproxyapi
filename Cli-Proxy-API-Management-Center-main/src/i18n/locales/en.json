@@ -1379,6 +1379,8 @@
     "scan_no_result_hint": "Nothing failed, but that is because almost nothing was actually queried. Treat this as inconclusive, not as all-clear.",
     "scan_rerun": "Run again",
     "scan_finished_at": "Finished {{time}}",
+    "scan_concurrency_label": "Concurrency",
+    "scan_concurrency_hint": "How many credentials are queried at once (the batch size), 1–{{max}}. Larger is faster but puts more instantaneous load on the upstream and the server. Browsers cap concurrent connections per origin (usually 6 on HTTP/1.1, about 100 on HTTP/2); beyond that, requests queue in the browser and may time out.",
     "scan_retries_label": "Retry failed credentials",
     "scan_retries_hint": "How many times to retry each failure, one at a time. Set 0 to skip retrying and keep the first-pass result.",
     "scan_retry_progress": "Round {{round}}/{{rounds}} · {{completed}}/{{total}}",

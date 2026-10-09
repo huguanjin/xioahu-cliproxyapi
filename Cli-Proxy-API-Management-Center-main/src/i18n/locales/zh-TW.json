@@ -1405,6 +1405,8 @@
     "scan_no_result_hint": "沒有失敗項，但那是因為幾乎沒真正取到數。這是「未得出結論」，不是「全部正常」。",
     "scan_rerun": "重新巡檢",
     "scan_finished_at": "完成於 {{time}}",
+    "scan_concurrency_label": "並發數",
+    "scan_concurrency_hint": "同時查詢多少個憑證（每批的大小），範圍 1–{{max}}。批量越大越快，但對上游和伺服器的瞬時壓力也越大；瀏覽器對同一位址的並發連線數有限（HTTP/1.1 通常為 6，HTTP/2 約 100），超過後請求會在瀏覽器裡排隊並可能逾時。",
     "scan_retries_label": "重試失敗項次數",
     "scan_retries_hint": "每個失敗憑證最多重試幾次，逐個進行。填 0 表示不重試，直接採用首輪結果。",
     "scan_retry_progress": "第 {{round}}/{{rounds}} 輪 · {{completed}}/{{total}}",

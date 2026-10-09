@@ -1379,6 +1379,8 @@
     "scan_no_result_hint": "没有失败项，但那是因为几乎没真正取到数。这是「未得出结论」，不是「全部正常」。",
     "scan_rerun": "重新巡检",
     "scan_finished_at": "完成于 {{time}}",
+    "scan_concurrency_label": "并发数",
+    "scan_concurrency_hint": "同时查询多少个凭证（每批的大小），范围 1–{{max}}。批量越大越快，但对上游和服务器的瞬时压力也越大；浏览器对同一地址的并发连接数有限（HTTP/1.1 通常为 6，HTTP/2 约 100），超过后请求会在浏览器里排队并可能超时。",
     "scan_retries_label": "重试失败项次数",
     "scan_retries_hint": "每个失败凭证最多重试几次，逐个进行。填 0 表示不重试，直接采用首轮结果。",
     "scan_retry_progress": "第 {{round}}/{{rounds}} 轮 · {{completed}}/{{total}}",

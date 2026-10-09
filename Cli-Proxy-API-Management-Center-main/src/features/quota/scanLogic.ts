@@ -37,6 +37,47 @@ export const MAX_QUOTA_SCAN_RETRIES = 10;
 export const MIN_QUOTA_SCAN_RETRIES = 0;
 
 /**
+ * 并发数（= 每批凭证数）的可选区间。
+ *
+ * 下限是 1：0 或负数会让 chunkEntries 退化成「整池一批」，等于把并发悄悄
+ * 放到最大。上限只是防手滑（多打一个 0），不是性能预估。
+ */
+export const MIN_QUOTA_SCAN_CONCURRENCY = 1;
+export const MAX_QUOTA_SCAN_CONCURRENCY = 2000;
+
+/** 把界面上填的并发数收敛到合法区间；无法解析时回到默认值而不是最大值。 */
+export function clampScanConcurrency(value: unknown): number {
+  const parsed = typeof value === 'number' ? value : Number.parseInt(String(value ?? ''), 10);
+  if (!Number.isFinite(parsed)) return DEFAULT_QUOTA_SCAN_TUNING.batchSize;
+  return Math.min(
+    MAX_QUOTA_SCAN_CONCURRENCY,
+    Math.max(MIN_QUOTA_SCAN_CONCURRENCY, Math.trunc(parsed))
+  );
+}
+
+const QUOTA_SCAN_CONCURRENCY_KEY = 'quotaPage.scanConcurrency';
+
+/** 记住上次选的并发数，免得每次巡检都要重填；读不到时用默认值。 */
+export const readStoredScanConcurrency = (): number => {
+  if (typeof window === 'undefined') return DEFAULT_QUOTA_SCAN_TUNING.batchSize;
+  try {
+    const raw = window.localStorage.getItem(QUOTA_SCAN_CONCURRENCY_KEY);
+    return raw === null ? DEFAULT_QUOTA_SCAN_TUNING.batchSize : clampScanConcurrency(raw);
+  } catch {
+    return DEFAULT_QUOTA_SCAN_TUNING.batchSize;
+  }
+};
+
+export const writeStoredScanConcurrency = (value: number) => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(QUOTA_SCAN_CONCURRENCY_KEY, String(value));
+  } catch {
+    // ignore
+  }
+};
+
+/**
  * 把界面上填的重试轮数收敛到合法区间。
  *
  * 界面上是一个可自由输入的框，所以空字符串、负数、小数、「abc」都可能到
