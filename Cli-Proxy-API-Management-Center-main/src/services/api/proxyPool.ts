@@ -11,6 +11,25 @@ export type ProxyPoolEntry = {
   account?: string;
   'exit-ip'?: string;
   notes?: string;
+  /** 当前绑定到该代理的凭证数量（只读，由服务端统计）。 */
+  'bound-count'?: number;
+};
+
+export type ProxyProbeResult = {
+  id: string;
+  name?: string;
+  ok: boolean;
+  'latency-ms': number;
+  'status-code'?: number;
+  error?: string;
+};
+
+// 探测每个代理最长 10s，整池并发 8 路，远超默认的 30s 请求超时。
+const PROXY_TEST_TIMEOUT_MS = 120 * 1000;
+
+const readProbeResults = (data: Record<string, unknown>): ProxyProbeResult[] => {
+  const items = data.results;
+  return Array.isArray(items) ? (items as ProxyProbeResult[]) : [];
 };
 
 export const proxyPoolApi = {
@@ -20,10 +39,27 @@ export const proxyPoolApi = {
     return Array.isArray(items) ? (items as ProxyPoolEntry[]) : [];
   },
 
-  replace: (entries: ProxyPoolEntry[]) => apiClient.put('/proxy-pool', entries),
+  replace: (entries: ProxyPoolEntry[]) =>
+    apiClient.put(
+      '/proxy-pool',
+      entries.map((entry) => {
+        // bound-count 是展示用的统计值，不属于配置，不回写。
+        const { 'bound-count': _boundCount, ...rest } = entry;
+        void _boundCount;
+        return rest;
+      })
+    ),
 
-  update: (id: string, value: Partial<Omit<ProxyPoolEntry, 'id'>>) =>
+  update: (id: string, value: Partial<Omit<ProxyPoolEntry, 'id' | 'bound-count'>>) =>
     apiClient.patch('/proxy-pool', { id, value }),
 
   delete: (id: string) => apiClient.delete(`/proxy-pool?id=${encodeURIComponent(id)}`),
+
+  /** 经代理访问 Google 端点，检查代理是否可用。 */
+  async test(target: { id: string } | { all: true }): Promise<ProxyProbeResult[]> {
+    const data = await apiClient.post<Record<string, unknown>>('/proxy-pool/test', target, {
+      timeout: PROXY_TEST_TIMEOUT_MS,
+    });
+    return readProbeResults(data);
+  },
 };

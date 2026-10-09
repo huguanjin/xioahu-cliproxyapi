@@ -270,6 +270,11 @@
     "upload_error_json": "Only JSON files are allowed",
     "upload_error_size": "File size cannot exceed {{maxSize}}",
     "upload_success": "File uploaded successfully",
+    "auto_proxy_label": "Auto-assign proxy",
+    "auto_proxy_hint": "On upload, probe the proxy pool and spread credentials without their own proxy evenly over the reachable proxies. Re-uploading a credential with the same name keeps its proxy.",
+    "auto_proxy_assigned": "Proxies assigned",
+    "auto_proxy_bound_total": "{{count}} total",
+    "auto_proxy_skipped": "Unreachable proxies skipped",
     "download_success": "File downloaded successfully",
     "delete_success": "File deleted successfully",
     "delete_all_success": "Successfully deleted",
@@ -683,7 +688,14 @@
     "delete_success": "Proxy pool entry deleted",
     "delete_failed": "Failed to delete proxy pool entry",
     "list_empty": "No proxy pool entries yet",
-    "proxy_url_required": "Proxy URL is required"
+    "proxy_url_required": "Proxy URL is required",
+    "bound_count": "{{count}} credentials bound",
+    "test": "Test",
+    "test_all": "Test all",
+    "test_all_done": "Connectivity test done: {{ok}}/{{total}} reachable",
+    "test_failed": "Proxy connectivity test failed",
+    "probe_ok": "Reachable · {{ms}} ms",
+    "probe_fail": "Unreachable: {{error}}"
   },
   "excluded_models": {
     "trigger_summary": "{{excluded}} excluded · {{available}} available",

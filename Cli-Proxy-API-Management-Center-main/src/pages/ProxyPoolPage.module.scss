@@ -57,6 +57,36 @@
   word-break: break-all;
 }
 
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+}
+
+.entryStatus {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: $spacing-sm;
+  font-size: 12px;
+}
+
+.boundBadge {
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+}
+
+.probeOk {
+  color: var(--success-color);
+}
+
+.probeFail {
+  color: var(--danger-color);
+  word-break: break-all;
+}
+
 .entryMeta {
   display: flex;
   flex-wrap: wrap;

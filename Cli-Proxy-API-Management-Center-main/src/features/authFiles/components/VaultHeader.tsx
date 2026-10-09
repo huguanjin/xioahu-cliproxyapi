@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import { IconRefreshCw, IconUpload } from '@/components/ui/icons';
 import { useRevealGroup } from '@/hooks/motion';
 import styles from './VaultHeader.module.scss';
@@ -11,6 +12,9 @@ export type VaultHeaderProps = {
   loading: boolean;
   refreshing: boolean;
   uploading: boolean;
+  /** 上传时自动把凭证均分绑定到代理池里可用的代理。 */
+  autoProxy: boolean;
+  onAutoProxyChange: (value: boolean) => void;
   disableControls: boolean;
   onUpload: () => void;
   onRefresh: () => void;
@@ -28,6 +32,8 @@ export function VaultHeader(props: VaultHeaderProps) {
     loading,
     refreshing,
     uploading,
+    autoProxy,
+    onAutoProxyChange,
     disableControls,
     onUpload,
     onRefresh,
@@ -64,6 +70,15 @@ export function VaultHeader(props: VaultHeaderProps) {
         </p>
       </div>
       <div className={styles.actions} data-reveal>
+        <span className={styles.autoProxy} title={t('auth_files.auto_proxy_hint')}>
+          <ToggleSwitch
+            checked={autoProxy}
+            onChange={onAutoProxyChange}
+            disabled={disableControls || uploading}
+            label={t('auth_files.auto_proxy_label')}
+            ariaLabel={t('auth_files.auto_proxy_label')}
+          />
+        </span>
         <button
           type="button"
           className={styles.ghostAction}

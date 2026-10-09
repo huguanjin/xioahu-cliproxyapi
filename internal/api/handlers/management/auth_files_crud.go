@@ -47,7 +47,8 @@ func (h *Handler) DownloadAuthFile(c *gin.Context) {
 	c.Data(200, "application/json", data)
 }
 
-// Upload auth file: multipart or raw JSON with ?name=
+// Upload auth file: multipart or raw JSON with ?name=. With ?auto_proxy=1 each file that has no
+// proxy_url of its own is bound to the least loaded reachable proxy of the proxy pool.
 func (h *Handler) UploadAuthFile(c *gin.Context) {
 	if h.authManager == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "core auth manager unavailable"})
@@ -55,13 +56,30 @@ func (h *Handler) UploadAuthFile(c *gin.Context) {
 	}
 	ctx := c.Request.Context()
 
+	var assigner *proxyAssigner
+	if autoProxy := strings.ToLower(strings.TrimSpace(c.Query("auto_proxy"))); autoProxy == "1" || autoProxy == "true" {
+		var errAssigner error
+		assigner, errAssigner = h.newProxyAssigner(ctx)
+		if errAssigner != nil {
+			c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("auto proxy unavailable: %v", errAssigner)})
+			return
+		}
+	}
+	// withReport attaches the proxy distribution to a successful response body.
+	withReport := func(body gin.H) gin.H {
+		if assigner != nil {
+			body["auto_proxy"] = assigner.report()
+		}
+		return body
+	}
+
 	fileHeaders, errMultipart := h.multipartAuthFileHeaders(c)
 	if errMultipart != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid multipart form: %v", errMultipart)})
 		return
 	}
 	if len(fileHeaders) == 1 {
-		if _, errUpload := h.storeUploadedAuthFile(ctx, fileHeaders[0]); errUpload != nil {
+		if _, errUpload := h.storeUploadedAuthFile(ctx, fileHeaders[0], assigner); errUpload != nil {
 			if errors.Is(errUpload, errAuthFileMustBeJSON) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "file must be .json"})
 				return
@@ -69,14 +87,14 @@ func (h *Handler) UploadAuthFile(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": errUpload.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+		c.JSON(http.StatusOK, withReport(gin.H{"status": "ok"}))
 		return
 	}
 	if len(fileHeaders) > 1 {
 		uploaded := make([]string, 0, len(fileHeaders))
 		failed := make([]gin.H, 0)
 		for _, file := range fileHeaders {
-			name, errUpload := h.storeUploadedAuthFile(ctx, file)
+			name, errUpload := h.storeUploadedAuthFile(ctx, file, assigner)
 			if errUpload != nil {
 				failureName := ""
 				if file != nil {
@@ -92,15 +110,15 @@ func (h *Handler) UploadAuthFile(c *gin.Context) {
 			uploaded = append(uploaded, name)
 		}
 		if len(failed) > 0 {
-			c.JSON(http.StatusMultiStatus, gin.H{
+			c.JSON(http.StatusMultiStatus, withReport(gin.H{
 				"status":   "partial",
 				"uploaded": len(uploaded),
 				"files":    uploaded,
 				"failed":   failed,
-			})
+			}))
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"status": "ok", "uploaded": len(uploaded), "files": uploaded})
+		c.JSON(http.StatusOK, withReport(gin.H{"status": "ok", "uploaded": len(uploaded), "files": uploaded}))
 		return
 	}
 	if c.ContentType() == "multipart/form-data" {
@@ -121,11 +139,14 @@ func (h *Handler) UploadAuthFile(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "failed to read body"})
 		return
 	}
+	if assigner != nil {
+		data = assigner.apply(filepath.Base(name), data)
+	}
 	if err = h.writeAuthFile(ctx, filepath.Base(name), data); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(200, gin.H{"status": "ok"})
+	c.JSON(200, withReport(gin.H{"status": "ok"}))
 }
 
 // Delete auth files: single by name or all
@@ -234,7 +255,7 @@ func (h *Handler) multipartAuthFileHeaders(c *gin.Context) ([]*multipart.FileHea
 	return headers, nil
 }
 
-func (h *Handler) storeUploadedAuthFile(ctx context.Context, file *multipart.FileHeader) (string, error) {
+func (h *Handler) storeUploadedAuthFile(ctx context.Context, file *multipart.FileHeader, assigner *proxyAssigner) (string, error) {
 	if file == nil {
 		return "", fmt.Errorf("no file uploaded")
 	}
@@ -251,6 +272,9 @@ func (h *Handler) storeUploadedAuthFile(ctx context.Context, file *multipart.Fil
 	data, err := io.ReadAll(src)
 	if err != nil {
 		return "", fmt.Errorf("failed to read uploaded file: %w", err)
+	}
+	if assigner != nil {
+		data = assigner.apply(name, data)
 	}
 	if err := h.writeAuthFile(ctx, name, data); err != nil {
 		return "", err

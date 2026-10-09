@@ -42,11 +42,17 @@ export type AuthFileFieldsPatch = {
   expired?: string;
 };
 type AuthFileBatchFailure = { name: string; error: string };
+/** 上传时自动分配代理的结果：每个可用代理新分到/累计绑定的凭证数，以及被跳过的不可用代理。 */
+export type AutoProxyReport = {
+  distribution: Array<{ id: string; name?: string; assigned: number; bound: number }>;
+  unhealthy: Array<{ id: string; name?: string; error?: string }>;
+};
 type AuthFileBatchUploadResponse = {
   status?: string;
   uploaded?: number;
   files?: unknown;
   failed?: unknown;
+  auto_proxy?: Partial<AutoProxyReport>;
 };
 type AuthFileBatchDeleteResponse = {
   status?: string;
@@ -65,6 +71,8 @@ type AuthFileBatchUploadResult = {
   uploaded: number;
   files: string[];
   failed: AuthFileBatchFailure[];
+  /** 仅在上传时开启了自动分配代理才有。 */
+  autoProxy?: AutoProxyReport;
 };
 type AuthFileBatchDeleteResult = {
   status: string;
@@ -242,11 +250,18 @@ const normalizeBatchUploadResponse = (
   // Backend single-file success path returns only {status:"ok"} (auth_files.go:680).
   // Derive count + names from the request when no failures and counts are absent.
   const inferFromRequest = payload?.uploaded === undefined && failed.length === 0;
+  const autoProxy = payload?.auto_proxy
+    ? {
+        distribution: payload.auto_proxy.distribution ?? [],
+        unhealthy: payload.auto_proxy.unhealthy ?? [],
+      }
+    : undefined;
   return {
     status: payload?.status ?? (failed.length > 0 ? 'partial' : 'ok'),
     uploaded: payload?.uploaded ?? (inferFromRequest ? requestedNames.length : 0),
     files: filesFromPayload.length ? filesFromPayload : inferFromRequest ? [...requestedNames] : [],
     failed,
+    autoProxy,
   };
 };
 
@@ -634,7 +649,10 @@ export const authFilesApi = {
       expired: buildManualRefreshExpiredAt(),
     }),
 
-  uploadFiles: async (files: File[]): Promise<AuthFileBatchUploadResult> => {
+  uploadFiles: async (
+    files: File[],
+    options?: { autoProxy?: boolean }
+  ): Promise<AuthFileBatchUploadResult> => {
     const requestedNames = files.map((file) => file.name);
     if (requestedNames.length === 0) {
       return { status: 'ok', uploaded: 0, files: [], failed: [] };
@@ -644,7 +662,12 @@ export const authFilesApi = {
     files.forEach((file) => {
       formData.append('file', file, file.name);
     });
-    const payload = await apiClient.postForm<AuthFileBatchUploadResponse>('/auth-files', formData);
+    // 自动分配会先探测整个代理池（每个最长 10s），放宽默认的 30s 请求超时。
+    const payload = await apiClient.postForm<AuthFileBatchUploadResponse>(
+      '/auth-files',
+      formData,
+      options?.autoProxy ? { params: { auto_proxy: 1 }, timeout: 120 * 1000 } : undefined
+    );
     return normalizeBatchUploadResponse(payload, requestedNames);
   },
 

@@ -80,6 +80,14 @@
   flex-shrink: 0;
 }
 
+.autoProxy {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 6px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
 /* 墨色药丸主按钮（深色主题下自动反相：text-primary on bg-secondary） */
 .primaryAction {
   display: inline-flex;

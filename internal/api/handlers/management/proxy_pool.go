@@ -9,28 +9,28 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 )
 
-// GetProxyPool returns proxy pool entries. An optional "q" query parameter fuzzy-matches
-// (case-insensitive substring) against name, account, exit-ip, and notes.
+// GetProxyPool returns proxy pool entries, each with the number of credentials bound to it
+// ("bound-count"). An optional "q" query parameter fuzzy-matches (case-insensitive substring)
+// against name, account, exit-ip, and notes.
 func (h *Handler) GetProxyPool(c *gin.Context) {
 	h.mu.Lock()
 	entries := append([]config.ProxyPoolEntry(nil), h.cfg.ProxyPool...)
 	h.mu.Unlock()
 
 	q := strings.ToLower(strings.TrimSpace(c.Query("q")))
-	if q == "" {
-		c.JSON(200, gin.H{"proxy-pool": entries})
-		return
-	}
-	filtered := make([]config.ProxyPoolEntry, 0, len(entries))
+	counts := h.proxyBoundCounts()
+	views := make([]proxyPoolEntryView, 0, len(entries))
 	for _, entry := range entries {
-		if strings.Contains(strings.ToLower(entry.Name), q) ||
-			strings.Contains(strings.ToLower(entry.Account), q) ||
-			strings.Contains(strings.ToLower(entry.ExitIP), q) ||
-			strings.Contains(strings.ToLower(entry.Notes), q) {
-			filtered = append(filtered, entry)
+		if q != "" &&
+			!strings.Contains(strings.ToLower(entry.Name), q) &&
+			!strings.Contains(strings.ToLower(entry.Account), q) &&
+			!strings.Contains(strings.ToLower(entry.ExitIP), q) &&
+			!strings.Contains(strings.ToLower(entry.Notes), q) {
+			continue
 		}
+		views = append(views, proxyPoolEntryView{ProxyPoolEntry: entry, BoundCount: counts[strings.TrimSpace(entry.ProxyURL)]})
 	}
-	c.JSON(200, gin.H{"proxy-pool": filtered})
+	c.JSON(200, gin.H{"proxy-pool": views})
 }
 
 // PutProxyPool replaces the entire proxy pool list. Accepts either a bare array or

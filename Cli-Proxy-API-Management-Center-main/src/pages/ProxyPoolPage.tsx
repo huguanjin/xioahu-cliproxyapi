@@ -10,7 +10,7 @@ import { IconPencil, IconPlus, IconTrash2 } from '@/components/ui/icons';
 import { SecondaryScreenShell } from '@/components/common/SecondaryScreenShell';
 import { useEdgeSwipeBack } from '@/hooks/useEdgeSwipeBack';
 import { useAuthStore, useNotificationStore } from '@/stores';
-import { proxyPoolApi, type ProxyPoolEntry } from '@/services/api';
+import { proxyPoolApi, type ProxyPoolEntry, type ProxyProbeResult } from '@/services/api';
 import { getErrorMessage } from '@/utils/helpers';
 import styles from './ProxyPoolPage.module.scss';
 
@@ -56,6 +56,50 @@ export function ProxyPoolPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<EntryFormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+
+  // 连通性测试结果只在本页内存里保留：代理是否可用是即时状态，不写入配置。
+  const [probeResults, setProbeResults] = useState<Record<string, ProxyProbeResult>>({});
+  const [testingIds, setTestingIds] = useState<Set<string>>(new Set());
+  const [testingAll, setTestingAll] = useState(false);
+
+  const runProbe = useCallback(
+    async (target: { id: string } | { all: true }) => {
+      const ids = 'all' in target ? entries.map((entry) => entry.id) : [target.id];
+      if ('all' in target) {
+        setTestingAll(true);
+      }
+      setTestingIds((prev) => new Set([...prev, ...ids]));
+      try {
+        const results = await proxyPoolApi.test(target);
+        setProbeResults((prev) => {
+          const next = { ...prev };
+          results.forEach((result) => {
+            next[result.id] = result;
+          });
+          return next;
+        });
+        if ('all' in target) {
+          const okCount = results.filter((result) => result.ok).length;
+          showNotification(
+            t('proxy_pool.test_all_done', { ok: okCount, total: results.length }),
+            okCount === results.length ? 'success' : 'warning'
+          );
+        }
+      } catch (err: unknown) {
+        showNotification(`${t('proxy_pool.test_failed')}: ${getErrorMessage(err)}`, 'error');
+      } finally {
+        setTestingIds((prev) => {
+          const next = new Set(prev);
+          ids.forEach((id) => next.delete(id));
+          return next;
+        });
+        if ('all' in target) {
+          setTestingAll(false);
+        }
+      }
+    },
+    [entries, showNotification, t]
+  );
 
   const handleBack = useCallback(() => {
     navigate('/config');
@@ -188,10 +232,21 @@ export function ProxyPoolPage() {
       backAriaLabel={t('common.back')}
       contentClassName={styles.pageContent}
       rightAction={
-        <Button size="sm" onClick={openCreate} disabled={disableControls}>
-          <IconPlus size={16} />
-          {t('proxy_pool.add')}
-        </Button>
+        <div className={styles.headerActions}>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => void runProbe({ all: true })}
+            loading={testingAll}
+            disabled={disableControls || entries.length === 0}
+          >
+            {t('proxy_pool.test_all')}
+          </Button>
+          <Button size="sm" onClick={openCreate} disabled={disableControls}>
+            <IconPlus size={16} />
+            {t('proxy_pool.add')}
+          </Button>
+        </div>
       }
       isLoading={initialLoading}
       loadingLabel={t('common.loading')}
@@ -228,6 +283,25 @@ export function ProxyPoolPage() {
                 <div className={styles.entryInfo}>
                   <div className={styles.entryName}>{entry.name || entry['proxy-url']}</div>
                   <div className={styles.entryUrl}>{entry['proxy-url']}</div>
+                  <div className={styles.entryStatus}>
+                    <span className={styles.boundBadge}>
+                      {t('proxy_pool.bound_count', { count: entry['bound-count'] ?? 0 })}
+                    </span>
+                    {probeResults[entry.id] && (
+                      <span
+                        className={probeResults[entry.id].ok ? styles.probeOk : styles.probeFail}
+                        title={probeResults[entry.id].error}
+                      >
+                        {probeResults[entry.id].ok
+                          ? t('proxy_pool.probe_ok', {
+                              ms: probeResults[entry.id]['latency-ms'],
+                            })
+                          : t('proxy_pool.probe_fail', {
+                              error: probeResults[entry.id].error ?? '',
+                            })}
+                      </span>
+                    )}
+                  </div>
                   {(entry.account || entry['exit-ip'] || entry.notes) && (
                     <div className={styles.entryMeta}>
                       {entry.account && (
@@ -245,6 +319,15 @@ export function ProxyPoolPage() {
                   )}
                 </div>
                 <div className={styles.entryActions}>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => void runProbe({ id: entry.id })}
+                    loading={testingIds.has(entry.id)}
+                    disabled={disableControls || testingAll}
+                  >
+                    {t('proxy_pool.test')}
+                  </Button>
                   <Button
                     variant="ghost"
                     size="sm"

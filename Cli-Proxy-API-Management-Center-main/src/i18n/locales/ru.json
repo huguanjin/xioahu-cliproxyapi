@@ -269,6 +269,11 @@
     "upload_error_json": "Допустимы только файлы JSON",
     "upload_error_size": "Размер файла не может превышать {{maxSize}}",
     "upload_success": "Файл успешно загружен",
+    "auto_proxy_label": "Автоназначение прокси",
+    "auto_proxy_hint": "При загрузке проверяет пул прокси и равномерно привязывает учётные данные без собственного прокси к доступным прокси. Повторная загрузка с тем же именем сохраняет прокси.",
+    "auto_proxy_assigned": "Прокси назначены",
+    "auto_proxy_bound_total": "всего {{count}}",
+    "auto_proxy_skipped": "Недоступные прокси пропущены",
     "download_success": "Файл успешно скачан",
     "delete_success": "Файл успешно удалён",
     "delete_all_success": "Удаление завершено",
@@ -670,7 +675,14 @@
     "delete_success": "Запись пула прокси удалена",
     "delete_failed": "Не удалось удалить запись пула прокси",
     "list_empty": "Записей пула прокси пока нет",
-    "proxy_url_required": "Необходимо указать URL прокси"
+    "proxy_url_required": "Необходимо указать URL прокси",
+    "bound_count": "Привязано учётных данных: {{count}}",
+    "test": "Проверить",
+    "test_all": "Проверить все",
+    "test_all_done": "Проверка завершена: доступно {{ok}}/{{total}}",
+    "test_failed": "Не удалось проверить прокси",
+    "probe_ok": "Доступен · {{ms}} мс",
+    "probe_fail": "Недоступен: {{error}}"
   },
   "excluded_models": {
     "trigger_summary": "Исключено: {{excluded}} · доступно: {{available}}",

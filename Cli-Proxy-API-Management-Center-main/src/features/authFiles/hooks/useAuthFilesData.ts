@@ -17,6 +17,8 @@ import {
   supportsAuthFileManualRefresh,
 } from '@/features/authFiles/constants';
 
+const AUTO_PROXY_STORAGE_KEY = 'cpa.authFiles.autoProxy';
+
 type DeleteAllOptions = {
   filter: string;
   problemOnly: boolean;
@@ -46,6 +48,9 @@ export type UseAuthFilesDataResult = {
   refreshing: boolean;
   error: string;
   uploading: boolean;
+  /** 上传时是否把凭证均分绑定到代理池里可用的代理（偏好持久化在 localStorage）。 */
+  autoProxy: boolean;
+  setAutoProxy: (value: boolean) => void;
   deleting: string | null;
   deletingAll: boolean;
   clearingAllProxy: boolean;
@@ -87,6 +92,21 @@ export function useAuthFilesData(options?: UseAuthFilesDataOptions): UseAuthFile
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [autoProxy, setAutoProxyState] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem(AUTO_PROXY_STORAGE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const setAutoProxy = useCallback((value: boolean) => {
+    setAutoProxyState(value);
+    try {
+      window.localStorage.setItem(AUTO_PROXY_STORAGE_KEY, value ? '1' : '0');
+    } catch {
+      // 偏好无法持久化时仅本次会话生效。
+    }
+  }, []);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [deletingAll, setDeletingAll] = useState(false);
   const [clearingAllProxy, setClearingAllProxy] = useState(false);
@@ -284,7 +304,7 @@ export function useAuthFilesData(options?: UseAuthFilesDataOptions): UseAuthFile
       uploadPendingRef.current = true;
       setUploading(true);
       try {
-        const result = await authFilesApi.uploadFiles(validFiles);
+        const result = await authFilesApi.uploadFiles(validFiles, { autoProxy });
         const successCount = result.uploaded;
 
         if (successCount > 0) {
@@ -296,6 +316,27 @@ export function useAuthFilesData(options?: UseAuthFilesDataOptions): UseAuthFile
           notifyAuthFilesChanged();
           onFilesMutatedRef.current?.(result.files.length > 0 ? result.files : undefined);
           await loadFiles({ background: true });
+        }
+
+        if (result.autoProxy) {
+          const assigned = result.autoProxy.distribution
+            .filter((item) => item.assigned > 0)
+            .map(
+              (item) =>
+                `${item.name || item.id}: +${item.assigned} (${t('auth_files.auto_proxy_bound_total', { count: item.bound })})`
+            );
+          if (assigned.length > 0) {
+            showNotification(
+              `${t('auth_files.auto_proxy_assigned')}: ${assigned.join('; ')}`,
+              'success'
+            );
+          }
+          if (result.autoProxy.unhealthy.length > 0) {
+            const skipped = result.autoProxy.unhealthy
+              .map((item) => `${item.name || item.id}${item.error ? ` (${item.error})` : ''}`)
+              .join('; ');
+            showNotification(`${t('auth_files.auto_proxy_skipped')}: ${skipped}`, 'warning');
+          }
         }
 
         if (result.failed.length > 0) {
@@ -311,7 +352,7 @@ export function useAuthFilesData(options?: UseAuthFilesDataOptions): UseAuthFile
         event.target.value = '';
       }
     },
-    [loadFiles, showNotification, t]
+    [autoProxy, loadFiles, showNotification, t]
   );
 
   const handleDelete = useCallback(
@@ -854,6 +895,8 @@ export function useAuthFilesData(options?: UseAuthFilesDataOptions): UseAuthFile
     refreshing,
     error,
     uploading,
+    autoProxy,
+    setAutoProxy,
     deleting,
     deletingAll,
     clearingAllProxy,

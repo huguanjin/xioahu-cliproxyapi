@@ -143,6 +143,8 @@ export function AuthFilesPage() {
     refreshing,
     error,
     uploading,
+    autoProxy,
+    setAutoProxy,
     deleting,
     deletingAll,
     clearingAllProxy,
@@ -747,6 +749,8 @@ export function AuthFilesPage() {
         loading={loading}
         refreshing={refreshing}
         uploading={uploading}
+        autoProxy={autoProxy}
+        onAutoProxyChange={setAutoProxy}
         disableControls={disableControls}
         onUpload={handleUploadClick}
         onRefresh={() => void handleHeaderRefresh()}

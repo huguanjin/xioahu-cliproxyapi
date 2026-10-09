@@ -270,6 +270,11 @@
     "upload_error_json": "只能上传JSON文件",
     "upload_error_size": "文件大小不能超过 {{maxSize}}",
     "upload_success": "文件上传成功",
+    "auto_proxy_label": "自动分配代理",
+    "auto_proxy_hint": "上传时先探测代理池，把没有自带代理的凭证均分绑定到可用代理上；重复上传同名凭证不会换代理",
+    "auto_proxy_assigned": "已分配代理",
+    "auto_proxy_bound_total": "共 {{count}} 个",
+    "auto_proxy_skipped": "已跳过不可用代理",
     "download_success": "文件下载成功",
     "delete_success": "文件删除成功",
     "delete_all_success": "成功删除",
@@ -683,7 +688,14 @@
     "delete_success": "代理池条目已删除",
     "delete_failed": "删除代理池条目失败",
     "list_empty": "暂无代理池条目",
-    "proxy_url_required": "请填写代理地址"
+    "proxy_url_required": "请填写代理地址",
+    "bound_count": "已绑定 {{count}} 个凭证",
+    "test": "测试",
+    "test_all": "测试全部",
+    "test_all_done": "连通性测试完成：{{ok}}/{{total}} 可用",
+    "test_failed": "代理连通性测试失败",
+    "probe_ok": "可用 · {{ms}} ms",
+    "probe_fail": "不可用：{{error}}"
   },
   "excluded_models": {
     "trigger_summary": "已排除 {{excluded}} · {{available}} 可用",
