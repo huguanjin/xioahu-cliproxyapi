@@ -329,6 +329,43 @@ export function hasAuthFileProxy(file: AuthFileItem): boolean {
   return typeof proxyUrl === 'string' && proxyUrl.trim().length > 0;
 }
 
+/**
+ * 代理的展示键：`host:port`，不含协议和账号密码。
+ *
+ * 筛选值和下拉文案都用它，所以完整代理地址（含密码）不会出现在下拉里，
+ * 也不会被持久化进 localStorage。同一网关上不同账号的代理会被归为一组 ——
+ * 对「某个 IP 下有哪些凭证」这个问题，这正是想要的粒度。
+ */
+export function getAuthFileProxyKey(file: AuthFileItem): string {
+  const raw = file['proxy_url'] ?? file.proxyUrl;
+  if (typeof raw !== 'string') return '';
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  try {
+    const host = new URL(trimmed.includes('://') ? trimmed : `socks5://${trimmed}`).host;
+    if (host) return host;
+  } catch {
+    // 落到下面的手工截取
+  }
+  const withoutScheme = trimmed.replace(/^[a-z0-9+.-]+:\/\//i, '');
+  return withoutScheme.slice(withoutScheme.lastIndexOf('@') + 1).replace(/\/.*$/, '');
+}
+
+/** 统计每个代理下的凭证数，按数量降序、同数量按名称升序。 */
+export function collectAuthFileProxies(
+  files: readonly AuthFileItem[]
+): Array<{ key: string; count: number }> {
+  const counts = new Map<string, number>();
+  files.forEach((file) => {
+    if (isRuntimeOnlyAuthFile(file)) return;
+    const key = getAuthFileProxyKey(file);
+    if (key) counts.set(key, (counts.get(key) ?? 0) + 1);
+  });
+  return Array.from(counts, ([key, count]) => ({ key, count })).sort(
+    (a, b) => b.count - a.count || a.key.localeCompare(b.key)
+  );
+}
+
 export const formatModified = (item: AuthFileItem): string => {
   const raw = item['modtime'] ?? item.modified;
   if (!raw) return '-';

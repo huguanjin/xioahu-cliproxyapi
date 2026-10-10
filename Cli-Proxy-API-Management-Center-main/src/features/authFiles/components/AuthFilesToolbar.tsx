@@ -30,6 +30,9 @@ export type AuthFilesToolbarProps = {
   regionRestrictedOnly: boolean;
   regionRestrictedCount: number;
   onRegionRestrictedOnlyChange: (value: boolean) => void;
+  proxyFilter: string;
+  proxyFilterOptions: Array<{ value: string; label: string }>;
+  onProxyFilterChange: (value: string) => void;
   statusCodeFilter: string;
   statusCodeOptions: Array<{ value: string; label: string }>;
   onStatusCodeFilterChange: (value: string) => void;
@@ -78,6 +81,9 @@ export function AuthFilesToolbar(props: AuthFilesToolbarProps) {
     regionRestrictedOnly,
     regionRestrictedCount,
     onRegionRestrictedOnlyChange,
+    proxyFilter,
+    proxyFilterOptions,
+    onProxyFilterChange,
     statusCodeFilter,
     statusCodeOptions,
     onStatusCodeFilterChange,
@@ -225,6 +231,22 @@ export function AuthFilesToolbar(props: AuthFilesToolbarProps) {
           {regionRestrictedCount > 0 ? ` ${regionRestrictedCount}` : ''}
         </span>
       </button>
+
+      {/*
+        代理筛选：按凭证绑定的出口代理（host:port）圈出某个 IP 下的凭证，
+        与其他筛选 AND 叠加。选项随数据生成，没有凭证绑定代理时只剩「全部」。
+      */}
+      <div
+        className={`${styles.statusCode} ${proxyFilter !== 'all' ? styles.statusCodeActive : ''}`}
+      >
+        <Select
+          value={proxyFilter}
+          options={proxyFilterOptions}
+          onChange={onProxyFilterChange}
+          ariaLabel={t('auth_files.proxy_filter_label')}
+          size="sm"
+        />
+      </div>
 
       {/*
         状态码筛选独立于上面的分段控件：分段是单选互斥，状态码需要与「问题」叠加。

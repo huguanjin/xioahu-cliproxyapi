@@ -17,6 +17,8 @@ import {
   collectAuthFileStatusCodes,
   getAuthFileLastStatusCode,
   getTypeLabel,
+  collectAuthFileProxies,
+  getAuthFileProxyKey,
   hasAuthFileProxy,
   isAuthFileKnownBad,
   isAuthFileKnownHealthy,
@@ -54,6 +56,7 @@ import { useAuthFilesPrefixProxyEditor } from '@/features/authFiles/hooks/useAut
 import { useAuthFilesStatusBarCache } from '@/features/authFiles/hooks/useAuthFilesStatusBarCache';
 import {
   isAuthFilesHealthFilterMode,
+  isAuthFilesProxyFilter,
   isAuthFilesStatusCodeFilter,
   isAuthFilesStatusFilterMode,
   isAuthFilesSortMode,
@@ -103,6 +106,7 @@ export function AuthFilesPage() {
   const [noProxyOnly, setNoProxyOnly] = useState(false);
   const [regionRestrictedOnly, setRegionRestrictedOnly] = useState(false);
   const [statusCodeFilter, setStatusCodeFilter] = useState<string>('all');
+  const [proxyFilter, setProxyFilter] = useState<string>('all');
   const [compactMode, setCompactMode] = useState(false);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -272,6 +276,9 @@ export function AuthFilesPage() {
       if (isAuthFilesStatusCodeFilter(persisted.statusCodeFilter)) {
         setStatusCodeFilter(persisted.statusCodeFilter);
       }
+      if (isAuthFilesProxyFilter(persisted.proxyFilter)) {
+        setProxyFilter(persisted.proxyFilter);
+      }
       if (typeof persisted.search === 'string') {
         setSearch(persisted.search);
       }
@@ -320,6 +327,7 @@ export function AuthFilesPage() {
       regionRestrictedOnly,
       healthFilterMode,
       statusCodeFilter,
+      proxyFilter,
       compactMode,
       search,
       page,
@@ -339,6 +347,7 @@ export function AuthFilesPage() {
     regionRestrictedOnly,
     healthFilterMode,
     statusCodeFilter,
+    proxyFilter,
     page,
     pageSize,
     pageSizeByMode,
@@ -469,6 +478,11 @@ export function AuthFilesPage() {
     setPage(1);
   }, []);
 
+  const handleProxyFilterChange = useCallback((value: string) => {
+    setProxyFilter(value);
+    setPage(1);
+  }, []);
+
   /* ---------- 数据加载：首载前台（骨架屏），此后一律后台（不清空网格） ---------- */
 
   const initialLoadDoneRef = useRef(false);
@@ -513,6 +527,7 @@ export function AuthFilesPage() {
         if (problemOnly && !isProblemAuthFile(file)) return false;
         if (noProxyOnly && hasAuthFileProxy(file)) return false;
         if (regionRestrictedOnly && !isAuthFileLocationRestricted(file)) return false;
+        if (proxyFilter !== 'all' && getAuthFileProxyKey(file) !== proxyFilter) return false;
         if (healthFilterMode === 'healthy' && !isAuthFileKnownHealthy(file)) return false;
         if (healthFilterMode === 'problem' && !isAuthFileKnownBad(file)) return false;
         if (healthFilterMode === 'untested' && !isAuthFileUntested(file)) return false;
@@ -529,6 +544,7 @@ export function AuthFilesPage() {
       healthFilterMode,
       noProxyOnly,
       problemOnly,
+      proxyFilter,
       regionRestrictedOnly,
       statusCodeFilter,
     ]
@@ -544,6 +560,20 @@ export function AuthFilesPage() {
     ],
     [files, t]
   );
+
+  // 选项来自当前实际绑定的代理，数量统计的是全部凭证（不受其他筛选影响），
+  // 这样下拉里的数字就是该代理名下的总数，也就是「代理池页」的已绑定数。
+  const proxyFilterOptions = useMemo(() => {
+    const proxies = collectAuthFileProxies(files);
+    // 当前选中的代理已无凭证时仍保留这一项，否则 Select 会显示成空白。
+    if (proxyFilter !== 'all' && !proxies.some((item) => item.key === proxyFilter)) {
+      proxies.push({ key: proxyFilter, count: 0 });
+    }
+    return [
+      { value: 'all', label: t('auth_files.proxy_filter_all') },
+      ...proxies.map((item) => ({ value: item.key, label: `${item.key} (${item.count})` })),
+    ];
+  }, [files, proxyFilter, t]);
 
   const statusFilterOptions = useMemo(
     () =>
@@ -795,6 +825,9 @@ export function AuthFilesPage() {
           regionRestrictedOnly={regionRestrictedOnly}
           regionRestrictedCount={regionRestrictedCount}
           onRegionRestrictedOnlyChange={handleRegionRestrictedOnlyChange}
+          proxyFilter={proxyFilter}
+          proxyFilterOptions={proxyFilterOptions}
+          onProxyFilterChange={handleProxyFilterChange}
           statusCodeFilter={statusCodeFilter}
           statusCodeOptions={statusCodeOptions}
           onStatusCodeFilterChange={handleStatusCodeFilterChange}

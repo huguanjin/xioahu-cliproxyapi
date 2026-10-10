@@ -4,6 +4,7 @@
  */
 
 import type { AuthFileItem } from '@/types';
+import { getAuthFileProxyKey } from '@/features/authFiles/constants';
 import { matchesAuthFileSearch } from '@/features/authFiles/logic';
 import { ANTIGRAVITY_CONFIG } from './providers/antigravity/data';
 import { CLAUDE_CONFIG } from './providers/claude/data';
@@ -48,6 +49,18 @@ export function classifyQuotaFiles(files: AuthFileItem[]): QuotaFileEntry[] {
 export function filterEntriesByTab(entries: QuotaFileEntry[], tab: QuotaTabId): QuotaFileEntry[] {
   if (tab === 'all') return entries;
   return entries.filter((entry) => entry.type === tab);
+}
+
+/**
+ * Keep only entries bound to the given proxy, identified by its `host:port` key
+ * (see getAuthFileProxyKey). 'all' means no filtering.
+ */
+export function filterEntriesByProxy(
+  entries: QuotaFileEntry[],
+  proxyKey: string
+): QuotaFileEntry[] {
+  if (proxyKey === 'all') return entries;
+  return entries.filter((entry) => getAuthFileProxyKey(entry.file) === proxyKey);
 }
 
 /**

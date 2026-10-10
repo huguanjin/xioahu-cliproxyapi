@@ -40,6 +40,7 @@ import {
   type QuotaSortMode,
   type QuotaTabId,
 } from './constants';
+import { collectAuthFileProxies } from '@/features/authFiles/constants';
 import {
   buildAvailabilityCounts,
   buildFamilyCounts,
@@ -60,6 +61,7 @@ import { weeklyRemainingMin } from './providers/antigravity/familyState';
 import {
   buildTabCounts,
   classifyQuotaFiles,
+  filterEntriesByProxy,
   filterEntriesBySearch,
   filterEntriesByTab,
   paginate,
@@ -104,6 +106,9 @@ export function QuotaPage() {
   );
   const [familyScope, setFamilyScope] = useState<QuotaFamilyScopeFilter>(
     () => readQuotaUiState()?.familyScope ?? 'all'
+  );
+  const [proxyFilter, setProxyFilter] = useState<string>(
+    () => readQuotaUiState()?.proxyFilter ?? 'all'
   );
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
@@ -178,8 +183,11 @@ export function QuotaPage() {
   // tab 与搜索词依次收窄，下游（排序/分页/空态/批量条）只认这一个结果集。
   const scopedEntries = useMemo(
     () =>
-      filterEntriesBySearch(filterEntriesByTab(entries, tab), normalizedSearch, wildcardSearch),
-    [entries, tab, normalizedSearch, wildcardSearch]
+      filterEntriesByProxy(
+        filterEntriesBySearch(filterEntriesByTab(entries, tab), normalizedSearch, wildcardSearch),
+        proxyFilter
+      ),
+    [entries, tab, normalizedSearch, wildcardSearch, proxyFilter]
   );
 
   // 可用性再收窄一层。计数建立在 scopedEntries（已过 tab/搜索）之上，
@@ -248,6 +256,12 @@ export function QuotaPage() {
     writeQuotaUiState({ availabilityFilter: next });
   }, []);
 
+  const handleProxyFilterChange = useCallback((next: string) => {
+    setProxyFilter(next);
+    setPage(1);
+    writeQuotaUiState({ proxyFilter: next });
+  }, []);
+
   const handleFamilyFilterChange = useCallback((next: string) => {
     if (!isQuotaFamilyFilter(next)) return;
     setFamilyFilter(next);
@@ -281,6 +295,20 @@ export function QuotaPage() {
   );
 
   // 标签带计数，让「有多少个取不到额度」在点开筛选前就能看见。
+  // 选项与数量取自全部可查额度的凭证，不随 tab/搜索变化：下拉里的数字是该代理
+  // 名下的总数，换 tab 时选项不会跳。
+  const proxyOptions = useMemo(() => {
+    const proxies = collectAuthFileProxies(entries.map((entry) => entry.file));
+    // 选中的代理已无凭证时仍保留这一项，否则 Select 会显示成空白。
+    if (proxyFilter !== 'all' && !proxies.some((item) => item.key === proxyFilter)) {
+      proxies.push({ key: proxyFilter, count: 0 });
+    }
+    return [
+      { value: 'all', label: t('quota_management.proxy_filter_all') },
+      ...proxies.map((item) => ({ value: item.key, label: `${item.key} (${item.count})` })),
+    ];
+  }, [entries, proxyFilter, t]);
+
   const availabilityOptions = useMemo(
     () =>
       QUOTA_AVAILABILITY_FILTERS.map((filter) => ({
@@ -627,6 +655,16 @@ export function QuotaPage() {
                 options={availabilityOptions}
                 onChange={handleAvailabilityFilterChange}
                 ariaLabel={t('quota_management.availability_filter_label')}
+                size="sm"
+              />
+            </div>
+            {/* 代理筛选：按凭证绑定的出口 IP（host:port）圈出某个代理下的凭证。 */}
+            <div className={styles.sort}>
+              <Select
+                value={proxyFilter}
+                options={proxyOptions}
+                onChange={handleProxyFilterChange}
+                ariaLabel={t('quota_management.proxy_filter_label')}
                 size="sm"
               />
             </div>

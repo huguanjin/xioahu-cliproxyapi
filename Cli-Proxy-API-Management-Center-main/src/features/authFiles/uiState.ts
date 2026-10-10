@@ -36,6 +36,8 @@ export type AuthFilesUiState = {
    * 不校验具体某个码是否还存在——数据变化后自然筛不出东西，不需要额外清理。
    */
   statusCodeFilter?: string;
+  /** 代理筛选：'all' 或 `host:port`（不含账号密码，见 getAuthFileProxyKey）。 */
+  proxyFilter?: string;
   compactMode?: boolean;
   search?: string;
   page?: number;
@@ -73,6 +75,10 @@ export const isAuthFilesStatusFilterMode = (value: unknown): value is AuthFilesS
 /** 'all' 或数字字符串才接受，用于水合持久化的状态码筛选。 */
 export const isAuthFilesStatusCodeFilter = (value: unknown): value is string =>
   value === 'all' || (typeof value === 'string' && /^\d+$/.test(value));
+
+/** 持久化的代理筛选只做形状校验：代理被删后自然筛不出东西，不需要清理。 */
+export const isAuthFilesProxyFilter = (value: unknown): value is string =>
+  typeof value === 'string' && value.trim().length > 0 && !value.includes('@');
 
 const readAuthFilesUiStateFromStorage = (
   storage: Pick<Storage, 'getItem'> | null | undefined

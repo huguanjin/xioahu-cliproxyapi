@@ -4,6 +4,7 @@ import { buildWildcardSearch } from '@/features/authFiles/logic';
 import {
   buildTabCounts,
   classifyQuotaFiles,
+  filterEntriesByProxy,
   filterEntriesBySearch,
   filterEntriesByTab,
   isQuotaRefreshDisabled,
@@ -320,5 +321,28 @@ describe('sortQuotaEntries — weekly mode', () => {
   test('tolerates a missing weekly resolver', () => {
     // 排序键可选：其它 provider 没有周限额概念。
     expect(byName(sortQuotaEntries(entries, 'weekly', () => null))).toEqual(byName(entries));
+  });
+});
+
+describe('filterEntriesByProxy', () => {
+  const entry = (name: string, proxy?: string): QuotaFileEntry =>
+    ({
+      type: 'antigravity',
+      file: { name, ...(proxy === undefined ? {} : { proxy_url: proxy }) },
+    }) as unknown as QuotaFileEntry;
+  const entries = [
+    entry('a', 'socks5://u:p@1.1.1.1:1'),
+    entry('b', 'socks5://other:x@1.1.1.1:1'),
+    entry('c', 'socks5://u:p@2.2.2.2:2'),
+    entry('d'),
+  ];
+
+  test('all keeps everything, including credentials without a proxy', () => {
+    expect(filterEntriesByProxy(entries, 'all')).toHaveLength(4);
+  });
+
+  test('keeps only credentials behind the chosen host:port, whatever the account', () => {
+    expect(filterEntriesByProxy(entries, '1.1.1.1:1').map((e) => e.file.name)).toEqual(['a', 'b']);
+    expect(filterEntriesByProxy(entries, '9.9.9.9:9')).toEqual([]);
   });
 });

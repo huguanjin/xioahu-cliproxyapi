@@ -4,6 +4,7 @@ import {
   type QuotaSortMode,
   type QuotaTabId,
 } from './constants';
+import { isAuthFilesProxyFilter } from '@/features/authFiles/uiState';
 import {
   isQuotaAvailabilityFilter,
   isQuotaFamilyFilter,
@@ -15,6 +16,8 @@ import {
 
 /** 额度页 UI 偏好：会话级持久化（sessionStorage），跨会话不携带。 */
 export type QuotaUiState = {
+  /** 'all' 或代理的 `host:port`（不含账号密码）。 */
+  proxyFilter?: string;
   tab?: QuotaTabId;
   sortMode?: QuotaSortMode;
   availabilityFilter?: QuotaAvailabilityFilter;
@@ -41,6 +44,7 @@ export const readQuotaUiState = (): QuotaUiState | null => {
     const parsed = JSON.parse(raw) as QuotaUiState;
     if (!parsed || typeof parsed !== 'object') return null;
     return {
+      proxyFilter: isAuthFilesProxyFilter(parsed.proxyFilter) ? parsed.proxyFilter : undefined,
       tab: isQuotaTabId(parsed.tab) ? parsed.tab : undefined,
       sortMode: isQuotaSortMode(parsed.sortMode) ? parsed.sortMode : undefined,
       availabilityFilter: isQuotaAvailabilityFilter(parsed.availabilityFilter)
