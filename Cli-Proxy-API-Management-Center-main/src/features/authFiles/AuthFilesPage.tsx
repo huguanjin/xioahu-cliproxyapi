@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useProxyPoolKeys } from '@/hooks/useProxyPoolKeys';
+import { buildProxyFilterMatcher, buildProxyFilterOptions } from '@/utils/proxyFilter';
 import { useNavigate } from 'react-router-dom';
 import { useInterval } from '@/hooks/useInterval';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
@@ -17,8 +19,8 @@ import {
   collectAuthFileStatusCodes,
   getAuthFileLastStatusCode,
   getTypeLabel,
-  collectAuthFileProxies,
   getAuthFileProxyKey,
+  getBoundProxyKeys,
   hasAuthFileProxy,
   isAuthFileKnownBad,
   isAuthFileKnownHealthy,
@@ -106,7 +108,7 @@ export function AuthFilesPage() {
   const [noProxyOnly, setNoProxyOnly] = useState(false);
   const [regionRestrictedOnly, setRegionRestrictedOnly] = useState(false);
   const [statusCodeFilter, setStatusCodeFilter] = useState<string>('all');
-  const [proxyFilter, setProxyFilter] = useState<string>('all');
+  const [proxyFilter, setProxyFilter] = useState<string>('');
   const [compactMode, setCompactMode] = useState(false);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -519,6 +521,22 @@ export function AuthFilesPage() {
     return Array.from(types);
   }, [files]);
 
+  // 选项以代理池为准，再补上凭证里自带但不在池里的代理；数量统计全部凭证（不受其他
+  // 筛选影响），所以下拉里的数字就是该代理名下的总数，与代理池页的「已绑定」对得上。
+  const proxyPoolKeys = useProxyPoolKeys();
+  const proxyFilterOptions = useMemo(
+    () => buildProxyFilterOptions(getBoundProxyKeys(files), proxyPoolKeys),
+    [files, proxyPoolKeys]
+  );
+  const matchesProxy = useMemo(
+    () =>
+      buildProxyFilterMatcher(
+        proxyFilter,
+        new Set(proxyFilterOptions.map((option) => option.key.toLowerCase()))
+      ),
+    [proxyFilter, proxyFilterOptions]
+  );
+
   const filesMatchingStatusFilters = useMemo(
     () =>
       files.filter((file) => {
@@ -527,7 +545,7 @@ export function AuthFilesPage() {
         if (problemOnly && !isProblemAuthFile(file)) return false;
         if (noProxyOnly && hasAuthFileProxy(file)) return false;
         if (regionRestrictedOnly && !isAuthFileLocationRestricted(file)) return false;
-        if (proxyFilter !== 'all' && getAuthFileProxyKey(file) !== proxyFilter) return false;
+        if (!matchesProxy(getAuthFileProxyKey(file))) return false;
         if (healthFilterMode === 'healthy' && !isAuthFileKnownHealthy(file)) return false;
         if (healthFilterMode === 'problem' && !isAuthFileKnownBad(file)) return false;
         if (healthFilterMode === 'untested' && !isAuthFileUntested(file)) return false;
@@ -543,8 +561,8 @@ export function AuthFilesPage() {
       files,
       healthFilterMode,
       noProxyOnly,
+      matchesProxy,
       problemOnly,
-      proxyFilter,
       regionRestrictedOnly,
       statusCodeFilter,
     ]
@@ -560,20 +578,6 @@ export function AuthFilesPage() {
     ],
     [files, t]
   );
-
-  // 选项来自当前实际绑定的代理，数量统计的是全部凭证（不受其他筛选影响），
-  // 这样下拉里的数字就是该代理名下的总数，也就是「代理池页」的已绑定数。
-  const proxyFilterOptions = useMemo(() => {
-    const proxies = collectAuthFileProxies(files);
-    // 当前选中的代理已无凭证时仍保留这一项，否则 Select 会显示成空白。
-    if (proxyFilter !== 'all' && !proxies.some((item) => item.key === proxyFilter)) {
-      proxies.push({ key: proxyFilter, count: 0 });
-    }
-    return [
-      { value: 'all', label: t('auth_files.proxy_filter_all') },
-      ...proxies.map((item) => ({ value: item.key, label: `${item.key} (${item.count})` })),
-    ];
-  }, [files, proxyFilter, t]);
 
   const statusFilterOptions = useMemo(
     () =>

@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Modal } from '@/components/ui/Modal';
-import { IconPencil, IconPlus, IconTrash2 } from '@/components/ui/icons';
+import { IconPencil, IconPlus, IconSearch, IconTrash2 } from '@/components/ui/icons';
 import { SecondaryScreenShell } from '@/components/common/SecondaryScreenShell';
 import { useEdgeSwipeBack } from '@/hooks/useEdgeSwipeBack';
 import { useAuthStore, useNotificationStore } from '@/stores';
@@ -17,6 +17,7 @@ import {
   type ProxyProbeResult,
 } from '@/services/api';
 import { getErrorMessage } from '@/utils/helpers';
+import { entryMatchesProxySearch } from '@/utils/proxyFilter';
 import styles from './ProxyPoolPage.module.scss';
 
 type EntryFormState = {
@@ -61,6 +62,7 @@ export function ProxyPoolPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<EntryFormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState('');
 
   // 连通性测试结果只在本页内存里保留：代理是否可用是即时状态，不写入配置。
   const [probeResults, setProbeResults] = useState<Record<string, ProxyProbeResult>>({});
@@ -292,8 +294,11 @@ export function ProxyPoolPage() {
   const modalTitle = isEditing ? t('proxy_pool.edit_title') : t('proxy_pool.add_title');
 
   const sortedEntries = useMemo(
-    () => [...entries].sort((a, b) => (a.name || a['proxy-url']).localeCompare(b.name || b['proxy-url'])),
-    [entries]
+    () =>
+      [...entries]
+        .filter((entry) => entryMatchesProxySearch(entry, search))
+        .sort((a, b) => (a.name || a['proxy-url']).localeCompare(b.name || b['proxy-url'])),
+    [entries, search]
   );
 
   return (
@@ -339,7 +344,7 @@ export function ProxyPoolPage() {
             }
           />
         </Card>
-      ) : sortedEntries.length === 0 ? (
+      ) : entries.length === 0 ? (
         <Card>
           <EmptyState
             title={t('proxy_pool.list_empty')}
@@ -352,6 +357,23 @@ export function ProxyPoolPage() {
           />
         </Card>
       ) : (
+        <>
+        <div className={styles.searchRow}>
+          <IconSearch className={styles.searchIcon} size={15} />
+          <input
+            className={styles.searchInput}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={t('proxy_pool.search_placeholder')}
+            aria-label={t('proxy_pool.search_placeholder')}
+            spellCheck={false}
+          />
+        </div>
+        {sortedEntries.length === 0 && (
+          <Card>
+            <EmptyState title={t('proxy_pool.search_empty')} />
+          </Card>
+        )}
         <div className={styles.entryList}>
           {sortedEntries.map((entry) => (
             <Card key={entry.id} className={styles.entryCard}>
@@ -427,6 +449,7 @@ export function ProxyPoolPage() {
             </Card>
           ))}
         </div>
+        </>
       )}
 
       <Modal

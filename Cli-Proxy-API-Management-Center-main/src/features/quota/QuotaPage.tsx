@@ -40,7 +40,10 @@ import {
   type QuotaSortMode,
   type QuotaTabId,
 } from './constants';
-import { collectAuthFileProxies } from '@/features/authFiles/constants';
+import { getBoundProxyKeys } from '@/features/authFiles/constants';
+import { useProxyPoolKeys } from '@/hooks/useProxyPoolKeys';
+import { ProxyFilterCombo } from '@/components/ui/ProxyFilterCombo';
+import { buildProxyFilterMatcher, buildProxyFilterOptions } from '@/utils/proxyFilter';
 import {
   buildAvailabilityCounts,
   buildFamilyCounts,
@@ -108,7 +111,7 @@ export function QuotaPage() {
     () => readQuotaUiState()?.familyScope ?? 'all'
   );
   const [proxyFilter, setProxyFilter] = useState<string>(
-    () => readQuotaUiState()?.proxyFilter ?? 'all'
+    () => readQuotaUiState()?.proxyFilter ?? ''
   );
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
@@ -177,6 +180,23 @@ export function QuotaPage() {
   const entries = useMemo(() => classifyQuotaFiles(files), [files]);
   const tabCounts = useMemo(() => buildTabCounts(entries), [entries]);
 
+  // 选项以代理池为准，再补上凭证里自带但不在池里的代理。数量取自全部可查额度的凭证，
+  // 不随 tab/搜索变化：下拉里的数字是该代理在额度页可见范围内的总数，换 tab 时选项不会跳；
+  // 池页说绑了、这里是 0 时，多半是那些凭证已停用（额度页不列已停用的凭证）。
+  const proxyPoolKeys = useProxyPoolKeys();
+  const proxyOptions = useMemo(
+    () => buildProxyFilterOptions(getBoundProxyKeys(entries.map((entry) => entry.file)), proxyPoolKeys),
+    [entries, proxyPoolKeys]
+  );
+  const matchesProxy = useMemo(
+    () =>
+      buildProxyFilterMatcher(
+        proxyFilter,
+        new Set(proxyOptions.map((option) => option.key.toLowerCase()))
+      ),
+    [proxyFilter, proxyOptions]
+  );
+
   const normalizedSearch = search.trim();
   const wildcardSearch = useMemo(() => buildWildcardSearch(normalizedSearch), [normalizedSearch]);
 
@@ -185,9 +205,9 @@ export function QuotaPage() {
     () =>
       filterEntriesByProxy(
         filterEntriesBySearch(filterEntriesByTab(entries, tab), normalizedSearch, wildcardSearch),
-        proxyFilter
+        matchesProxy
       ),
-    [entries, tab, normalizedSearch, wildcardSearch, proxyFilter]
+    [entries, tab, normalizedSearch, wildcardSearch, matchesProxy]
   );
 
   // 可用性再收窄一层。计数建立在 scopedEntries（已过 tab/搜索）之上，
@@ -295,20 +315,6 @@ export function QuotaPage() {
   );
 
   // 标签带计数，让「有多少个取不到额度」在点开筛选前就能看见。
-  // 选项与数量取自全部可查额度的凭证，不随 tab/搜索变化：下拉里的数字是该代理
-  // 名下的总数，换 tab 时选项不会跳。
-  const proxyOptions = useMemo(() => {
-    const proxies = collectAuthFileProxies(entries.map((entry) => entry.file));
-    // 选中的代理已无凭证时仍保留这一项，否则 Select 会显示成空白。
-    if (proxyFilter !== 'all' && !proxies.some((item) => item.key === proxyFilter)) {
-      proxies.push({ key: proxyFilter, count: 0 });
-    }
-    return [
-      { value: 'all', label: t('quota_management.proxy_filter_all') },
-      ...proxies.map((item) => ({ value: item.key, label: `${item.key} (${item.count})` })),
-    ];
-  }, [entries, proxyFilter, t]);
-
   const availabilityOptions = useMemo(
     () =>
       QUOTA_AVAILABILITY_FILTERS.map((filter) => ({
@@ -658,14 +664,16 @@ export function QuotaPage() {
                 size="sm"
               />
             </div>
-            {/* 代理筛选：按凭证绑定的出口 IP（host:port）圈出某个代理下的凭证。 */}
-            <div className={styles.sort}>
-              <Select
+            {/* 代理筛选：输入 IP / 端口片段模糊筛选，或点选某个代理精确锁定。 */}
+            <div className={styles.proxySearch}>
+              <ProxyFilterCombo
                 value={proxyFilter}
                 options={proxyOptions}
                 onChange={handleProxyFilterChange}
+                placeholder={t('quota_management.proxy_filter_placeholder')}
                 ariaLabel={t('quota_management.proxy_filter_label')}
-                size="sm"
+                clearLabel={t('quota_management.proxy_filter_clear')}
+                noMatchLabel={t('quota_management.proxy_filter_no_match')}
               />
             </div>
             {/* 家族筛选：只看 Gemini 或只看 Claude+GPT。下拉而不是标签，

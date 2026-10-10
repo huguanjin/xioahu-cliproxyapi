@@ -52,15 +52,14 @@ export function filterEntriesByTab(entries: QuotaFileEntry[], tab: QuotaTabId): 
 }
 
 /**
- * Keep only entries bound to the given proxy, identified by its `host:port` key
- * (see getAuthFileProxyKey). 'all' means no filtering.
+ * Keep only entries whose bound proxy passes the matcher (see buildProxyFilterMatcher).
+ * A credential without a proxy has an empty key and is dropped by any non-empty filter.
  */
 export function filterEntriesByProxy(
   entries: QuotaFileEntry[],
-  proxyKey: string
+  matches: (proxyKey: string) => boolean
 ): QuotaFileEntry[] {
-  if (proxyKey === 'all') return entries;
-  return entries.filter((entry) => getAuthFileProxyKey(entry.file) === proxyKey);
+  return entries.filter((entry) => matches(getAuthFileProxyKey(entry.file)));
 }
 
 /**

@@ -134,3 +134,36 @@
     padding-left: 18px;
   }
 }
+
+.searchRow {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  margin-bottom: $spacing-sm;
+  padding: 0 $spacing-md;
+  height: 38px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-primary);
+
+  &:focus-within {
+    border-color: var(--primary-color);
+  }
+}
+
+.searchIcon {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
+.searchInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+

@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { ProxyFilterCombo } from '@/components/ui/ProxyFilterCombo';
+import type { ProxyFilterOption } from '@/utils/proxyFilter';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import { IconNetwork, IconPlug, IconSatellite, IconSearch, IconSlidersHorizontal, IconTrash2 } from '@/components/ui/icons';
@@ -31,7 +33,7 @@ export type AuthFilesToolbarProps = {
   regionRestrictedCount: number;
   onRegionRestrictedOnlyChange: (value: boolean) => void;
   proxyFilter: string;
-  proxyFilterOptions: Array<{ value: string; label: string }>;
+  proxyFilterOptions: ProxyFilterOption[];
   onProxyFilterChange: (value: string) => void;
   statusCodeFilter: string;
   statusCodeOptions: Array<{ value: string; label: string }>;
@@ -233,18 +235,18 @@ export function AuthFilesToolbar(props: AuthFilesToolbarProps) {
       </button>
 
       {/*
-        代理筛选：按凭证绑定的出口代理（host:port）圈出某个 IP 下的凭证，
-        与其他筛选 AND 叠加。选项随数据生成，没有凭证绑定代理时只剩「全部」。
+        代理筛选：输入 IP / 端口片段做模糊筛选，或从列出的代理里点选精确锁定，圈出某个
+        出口下的凭证；与其他筛选 AND 叠加。选项以代理池为准，数字是该代理名下的凭证数。
       */}
-      <div
-        className={`${styles.statusCode} ${proxyFilter !== 'all' ? styles.statusCodeActive : ''}`}
-      >
-        <Select
+      <div className={styles.proxySearch}>
+        <ProxyFilterCombo
           value={proxyFilter}
           options={proxyFilterOptions}
           onChange={onProxyFilterChange}
+          placeholder={t('auth_files.proxy_filter_placeholder')}
           ariaLabel={t('auth_files.proxy_filter_label')}
-          size="sm"
+          clearLabel={t('auth_files.proxy_filter_clear')}
+          noMatchLabel={t('auth_files.proxy_filter_no_match')}
         />
       </div>
 

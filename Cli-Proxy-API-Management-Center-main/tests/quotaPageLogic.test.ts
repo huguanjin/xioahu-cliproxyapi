@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { QUOTA_PAGE_SIZE } from '@/features/quota/constants';
 import { buildWildcardSearch } from '@/features/authFiles/logic';
+import { buildProxyFilterMatcher } from '@/utils/proxyFilter';
 import {
   buildTabCounts,
   classifyQuotaFiles,
@@ -336,13 +337,19 @@ describe('filterEntriesByProxy', () => {
     entry('c', 'socks5://u:p@2.2.2.2:2'),
     entry('d'),
   ];
+  const known = new Set(['1.1.1.1:1', '2.2.2.2:2']);
 
-  test('all keeps everything, including credentials without a proxy', () => {
-    expect(filterEntriesByProxy(entries, 'all')).toHaveLength(4);
+  test('an empty filter keeps everything, including credentials without a proxy', () => {
+    expect(filterEntriesByProxy(entries, buildProxyFilterMatcher('', known))).toHaveLength(4);
   });
 
-  test('keeps only credentials behind the chosen host:port, whatever the account', () => {
-    expect(filterEntriesByProxy(entries, '1.1.1.1:1').map((e) => e.file.name)).toEqual(['a', 'b']);
-    expect(filterEntriesByProxy(entries, '9.9.9.9:9')).toEqual([]);
+  test('an exact host:port keeps only that proxy, whatever the account', () => {
+    const picked = filterEntriesByProxy(entries, buildProxyFilterMatcher('1.1.1.1:1', known));
+    expect(picked.map((e) => e.file.name)).toEqual(['a', 'b']);
+  });
+
+  test('a fragment filters fuzzily and drops unbound credentials', () => {
+    const picked = filterEntriesByProxy(entries, buildProxyFilterMatcher('2.2', known));
+    expect(picked.map((e) => e.file.name)).toEqual(['c']);
   });
 });

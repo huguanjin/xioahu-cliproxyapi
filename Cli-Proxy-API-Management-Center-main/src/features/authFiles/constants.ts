@@ -1,3 +1,4 @@
+import { getProxyHostPort } from '@/utils/proxyFilter';
 import type { TFunction } from 'i18next';
 import iconAntigravity from '@/assets/icons/antigravity.svg';
 import iconClaude from '@/assets/icons/claude.svg';
@@ -337,33 +338,18 @@ export function hasAuthFileProxy(file: AuthFileItem): boolean {
  * 对「某个 IP 下有哪些凭证」这个问题，这正是想要的粒度。
  */
 export function getAuthFileProxyKey(file: AuthFileItem): string {
-  const raw = file['proxy_url'] ?? file.proxyUrl;
-  if (typeof raw !== 'string') return '';
-  const trimmed = raw.trim();
-  if (!trimmed) return '';
-  try {
-    const host = new URL(trimmed.includes('://') ? trimmed : `socks5://${trimmed}`).host;
-    if (host) return host;
-  } catch {
-    // 落到下面的手工截取
-  }
-  const withoutScheme = trimmed.replace(/^[a-z0-9+.-]+:\/\//i, '');
-  return withoutScheme.slice(withoutScheme.lastIndexOf('@') + 1).replace(/\/.*$/, '');
+  return getProxyHostPort(file['proxy_url'] ?? file.proxyUrl);
 }
 
-/** 统计每个代理下的凭证数，按数量降序、同数量按名称升序。 */
-export function collectAuthFileProxies(
-  files: readonly AuthFileItem[]
-): Array<{ key: string; count: number }> {
-  const counts = new Map<string, number>();
+/** 这批凭证各自绑定的代理（`host:port`），未绑定的不出现；运行时虚拟凭证不算。 */
+export function getBoundProxyKeys(files: readonly AuthFileItem[]): string[] {
+  const keys: string[] = [];
   files.forEach((file) => {
     if (isRuntimeOnlyAuthFile(file)) return;
     const key = getAuthFileProxyKey(file);
-    if (key) counts.set(key, (counts.get(key) ?? 0) + 1);
+    if (key) keys.push(key);
   });
-  return Array.from(counts, ([key, count]) => ({ key, count })).sort(
-    (a, b) => b.count - a.count || a.key.localeCompare(b.key)
-  );
+  return keys;
 }
 
 export const formatModified = (item: AuthFileItem): string => {

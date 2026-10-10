@@ -329,3 +329,44 @@ func TestPutAndPatchProxyPool_PrefixBareAddressWithSocks5(t *testing.T) {
 		t.Fatalf("PATCH stored %q", got)
 	}
 }
+
+// The proxy filters in the UI read proxy_url from the auth-files listing, so a credential bound by
+// auto-assign upload must come back from ListAuthFiles with the same proxy_url it was written with.
+func TestListAuthFiles_ReportsProxyURLAfterAutoProxyUpload(t *testing.T) {
+	useProbeURL(t)
+	t.Setenv("MANAGEMENT_PASSWORD", "")
+
+	pool := []config.ProxyPoolEntry{{ID: "a", ProxyURL: newFakeProxy(t)}, {ID: "b", ProxyURL: newFakeProxy(t)}}
+	h := NewHandlerWithoutConfigFilePath(&config.Config{AuthDir: t.TempDir(), ProxyPool: pool}, coreauth.NewManager(nil, nil, nil))
+
+	files, order := agFiles("list", 4)
+	if rec, _ := uploadAuthFiles(t, h, "?auto_proxy=1", files, order); rec.Code != http.StatusOK {
+		t.Fatalf("upload status = %d; body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/v0/management/auth-files", nil)
+	h.ListAuthFiles(ctx)
+
+	var out struct {
+		Files []map[string]any `json:"files"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	perProxy := map[string]int{}
+	for _, f := range out.Files {
+		if f["has_proxy"] != true {
+			t.Fatalf("%v: has_proxy = %v", f["name"], f["has_proxy"])
+		}
+		proxyURL, _ := f["proxy_url"].(string)
+		if proxyURL == "" {
+			t.Fatalf("%v: listing has no proxy_url: %v", f["name"], f)
+		}
+		perProxy[proxyURL]++
+	}
+	if len(out.Files) != 4 || perProxy[pool[0].ProxyURL] != 2 || perProxy[pool[1].ProxyURL] != 2 {
+		t.Fatalf("listing = %d files, per proxy = %v", len(out.Files), perProxy)
+	}
+}
