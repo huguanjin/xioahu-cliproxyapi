@@ -267,15 +267,20 @@ export function ProxyPoolPage() {
         ];
         await proxyPoolApi.replace(nextEntries);
       }
+      const fresh = await proxyPoolApi.list();
+      setEntries(fresh);
+      if (form.residential && fresh.every((entry) => entry.residential !== true)) {
+        showNotification(t('proxy_pool.residential_not_saved'), 'error');
+        return;
+      }
       showNotification(t('proxy_pool.save_success'), 'success');
       setModalOpen(false);
-      await loadEntries();
     } catch (err: unknown) {
       showNotification(`${t('proxy_pool.save_failed')}: ${getErrorMessage(err)}`, 'error');
     } finally {
       setSaving(false);
     }
-  }, [editingId, entries, form, loadEntries, showNotification, t]);
+  }, [editingId, entries, form, showNotification, t]);
 
   const handleDelete = useCallback(
     (entry: ProxyPoolEntry) => {
@@ -331,19 +336,29 @@ export function ProxyPoolPage() {
           visibleIds.has(entry.id) ? { ...entry, residential: next } : entry
         )
       );
+      // 不信任「保存成功」：旧版后端会忽略不认识的 residential 字段，照样返回成功。
+      // 读回来核对，标记没落下就明确报错，而不是让人对着空的筛选结果猜。
+      const fresh = await proxyPoolApi.list();
+      setEntries(fresh);
+      const persisted = fresh.filter(
+        (entry) => visibleIds.has(entry.id) && (entry.residential === true) === next
+      ).length;
+      if (persisted < visibleIds.size) {
+        showNotification(t('proxy_pool.residential_not_saved'), 'error');
+        return;
+      }
       showNotification(
         t(next ? 'proxy_pool.bulk_residential_on_done' : 'proxy_pool.bulk_residential_off_done', {
           count: visibleIds.size,
         }),
         'success'
       );
-      await loadEntries();
     } catch (err: unknown) {
       showNotification(`${t('proxy_pool.save_failed')}: ${getErrorMessage(err)}`, 'error');
     } finally {
       setBulkTagging(false);
     }
-  }, [allVisibleResidential, entries, loadEntries, showNotification, t, visibleIds]);
+  }, [allVisibleResidential, entries, showNotification, t, visibleIds]);
 
   return (
     <SecondaryScreenShell

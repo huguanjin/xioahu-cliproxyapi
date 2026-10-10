@@ -701,6 +701,7 @@
     "residential_label": "住宅 IP",
     "residential_hint": "人工标记，系统不会自动识别。标记后可在凭证管理和配额管理页用「住宅 IP」按钮筛出绑定到这些代理的凭证。",
     "import_residential": "导入的代理全部标记为住宅 IP",
+    "residential_not_saved": "已提交，但服务端没有保存「住宅 IP」标记。通常是后端还是旧版本：请重新部署后端（只更新了管理面板页面不够），再重试。",
     "bulk_residential_on": "将当前显示的 {{count}} 个标记为住宅 IP",
     "bulk_residential_off": "取消当前显示的 {{count}} 个的住宅 IP 标记",
     "bulk_residential_on_done": "已将 {{count}} 个代理标记为住宅 IP",

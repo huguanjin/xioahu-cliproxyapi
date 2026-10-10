@@ -701,6 +701,7 @@
     "residential_label": "Residential IP",
     "residential_hint": "Set by hand; it is not detected. Once tagged, the Residential IP button on the credentials and quota pages shows credentials bound to these proxies.",
     "import_residential": "Tag all imported proxies as residential IP",
+    "residential_not_saved": "Submitted, but the server did not store the residential tag. This usually means the backend is an older build: redeploy the backend (updating only the panel page is not enough) and retry.",
     "bulk_residential_on": "Tag the {{count}} shown as residential IP",
     "bulk_residential_off": "Remove the residential tag from the {{count}} shown",
     "bulk_residential_on_done": "Tagged {{count}} proxies as residential IP",
