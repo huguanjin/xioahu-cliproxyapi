@@ -312,6 +312,39 @@ export function ProxyPoolPage() {
     [entries, search]
   );
 
+  // 批量标记：对「当前显示的」条目（受搜索框过滤）整体打开或关闭住宅 IP 标记。
+  // 整张表用 replace 回写，id 保持不变；bound-count 在 API 层被剥掉，不会写进配置。
+  const [bulkTagging, setBulkTagging] = useState(false);
+  const visibleIds = useMemo(
+    () => new Set(sortedEntries.map((entry) => entry.id)),
+    [sortedEntries]
+  );
+  const allVisibleResidential =
+    sortedEntries.length > 0 && sortedEntries.every((entry) => entry.residential === true);
+  const handleBulkResidential = useCallback(async () => {
+    if (visibleIds.size === 0) return;
+    const next = !allVisibleResidential;
+    setBulkTagging(true);
+    try {
+      await proxyPoolApi.replace(
+        entries.map((entry) =>
+          visibleIds.has(entry.id) ? { ...entry, residential: next } : entry
+        )
+      );
+      showNotification(
+        t(next ? 'proxy_pool.bulk_residential_on_done' : 'proxy_pool.bulk_residential_off_done', {
+          count: visibleIds.size,
+        }),
+        'success'
+      );
+      await loadEntries();
+    } catch (err: unknown) {
+      showNotification(`${t('proxy_pool.save_failed')}: ${getErrorMessage(err)}`, 'error');
+    } finally {
+      setBulkTagging(false);
+    }
+  }, [allVisibleResidential, entries, loadEntries, showNotification, t, visibleIds]);
+
   return (
     <SecondaryScreenShell
       ref={swipeRef}
@@ -379,6 +412,20 @@ export function ProxyPoolPage() {
             aria-label={t('proxy_pool.search_placeholder')}
             spellCheck={false}
           />
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => void handleBulkResidential()}
+            loading={bulkTagging}
+            disabled={disableControls || sortedEntries.length === 0}
+          >
+            {t(
+              allVisibleResidential
+                ? 'proxy_pool.bulk_residential_off'
+                : 'proxy_pool.bulk_residential_on',
+              { count: sortedEntries.length }
+            )}
+          </Button>
         </div>
         {sortedEntries.length === 0 && (
           <Card>

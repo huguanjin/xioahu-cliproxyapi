@@ -628,11 +628,15 @@ export function QuotaPage() {
   // 空态分因：搜索无命中 ≠ 可用性筛选无命中 ≠ 本就没有可查额度的凭证，
   // 三者文案与出口都不同。
   const isEmpty = !loading && filteredEntries.length === 0;
-  const isSearchEmpty = isEmpty && hasSearch;
+  // 代理 / 住宅 IP 筛选导致的空：要单独说，否则落到最后一个分支，显示成
+  // 「暂无 Antigravity 认证，请上传」，会让人以为凭证没了。
+  const hasProxyScope = residentialOnly || proxyFilter.trim().length > 0;
+  const isProxyEmpty = isEmpty && hasProxyScope;
+  const isSearchEmpty = isEmpty && hasSearch && !hasProxyScope;
   // 可用性空态只在「确实有候选被筛掉」时成立：tab 本身就空时该说的是
   // 「没有可查额度的凭证」，而不是「筛掉了」。
   const isAvailabilityEmpty =
-    isEmpty && !hasSearch && availabilityFilter !== 'all' && scopedEntries.length > 0;
+    isEmpty && !hasSearch && !hasProxyScope && availabilityFilter !== 'all' && scopedEntries.length > 0;
 
   return (
     <div className={styles.page} ref={revealRef}>
@@ -753,6 +757,27 @@ export function QuotaPage() {
               <Skeleton key={index} height={168} rounded={14} />
             ))}
           </div>
+        ) : isProxyEmpty ? (
+          <EmptyState
+            title={t('quota_management.proxy_empty_title')}
+            description={
+              residentialOnly && residentialKeys.size === 0
+                ? t('quota_management.residential_untagged_desc')
+                : t('quota_management.proxy_empty_desc')
+            }
+            action={
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  handleResidentialOnlyChange(false);
+                  handleProxyFilterChange('');
+                }}
+              >
+                {t('quota_management.proxy_empty_clear')}
+              </Button>
+            }
+          />
         ) : isSearchEmpty ? (
           <EmptyState
             title={t('quota_management.search_empty_title')}
