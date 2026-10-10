@@ -17,7 +17,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { IconSearch } from '@/components/ui/icons';
+import { IconNetwork, IconSearch } from '@/components/ui/icons';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { useNow } from '@/hooks/useNow';
 import { useRevealGroup } from '@/hooks/motion';
@@ -40,10 +40,14 @@ import {
   type QuotaSortMode,
   type QuotaTabId,
 } from './constants';
-import { getBoundProxyKeys } from '@/features/authFiles/constants';
+import { getAuthFileProxyKey, getBoundProxyKeys } from '@/features/authFiles/constants';
 import { useProxyPoolKeys } from '@/hooks/useProxyPoolKeys';
 import { ProxyFilterCombo } from '@/components/ui/ProxyFilterCombo';
-import { buildProxyFilterMatcher, buildProxyFilterOptions } from '@/utils/proxyFilter';
+import {
+  buildProxyFilterMatcher,
+  buildProxyFilterOptions,
+  isResidentialProxyKey,
+} from '@/utils/proxyFilter';
 import {
   buildAvailabilityCounts,
   buildFamilyCounts,
@@ -112,6 +116,9 @@ export function QuotaPage() {
   );
   const [proxyFilter, setProxyFilter] = useState<string>(
     () => readQuotaUiState()?.proxyFilter ?? ''
+  );
+  const [residentialOnly, setResidentialOnly] = useState<boolean>(
+    () => readQuotaUiState()?.residentialOnly === true
   );
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
@@ -183,7 +190,7 @@ export function QuotaPage() {
   // 选项以代理池为准，再补上凭证里自带但不在池里的代理。数量取自全部可查额度的凭证，
   // 不随 tab/搜索变化：下拉里的数字是该代理在额度页可见范围内的总数，换 tab 时选项不会跳；
   // 池页说绑了、这里是 0 时，多半是那些凭证已停用（额度页不列已停用的凭证）。
-  const proxyPoolKeys = useProxyPoolKeys();
+  const { keys: proxyPoolKeys, residentialKeys } = useProxyPoolKeys();
   const proxyOptions = useMemo(
     () => buildProxyFilterOptions(getBoundProxyKeys(entries.map((entry) => entry.file)), proxyPoolKeys),
     [entries, proxyPoolKeys]
@@ -200,14 +207,25 @@ export function QuotaPage() {
   const normalizedSearch = search.trim();
   const wildcardSearch = useMemo(() => buildWildcardSearch(normalizedSearch), [normalizedSearch]);
 
+  // 与「住宅 IP」筛选同一个谓词，所以按钮上的数字就是点开后会看到的条数（额度页不列已停用凭证）。
+  const residentialCount = useMemo(
+    () =>
+      entries.filter((entry) =>
+        isResidentialProxyKey(getAuthFileProxyKey(entry.file), residentialKeys)
+      ).length,
+    [entries, residentialKeys]
+  );
+
   // tab 与搜索词依次收窄，下游（排序/分页/空态/批量条）只认这一个结果集。
   const scopedEntries = useMemo(
     () =>
       filterEntriesByProxy(
         filterEntriesBySearch(filterEntriesByTab(entries, tab), normalizedSearch, wildcardSearch),
-        matchesProxy
+        (proxyKey) =>
+          matchesProxy(proxyKey) &&
+          (!residentialOnly || isResidentialProxyKey(proxyKey, residentialKeys))
       ),
-    [entries, tab, normalizedSearch, wildcardSearch, matchesProxy]
+    [entries, tab, normalizedSearch, wildcardSearch, matchesProxy, residentialOnly, residentialKeys]
   );
 
   // 可用性再收窄一层。计数建立在 scopedEntries（已过 tab/搜索）之上，
@@ -274,6 +292,12 @@ export function QuotaPage() {
     setAvailabilityFilter(next);
     setPage(1);
     writeQuotaUiState({ availabilityFilter: next });
+  }, []);
+
+  const handleResidentialOnlyChange = useCallback((next: boolean) => {
+    setResidentialOnly(next);
+    setPage(1);
+    writeQuotaUiState({ residentialOnly: next });
   }, []);
 
   const handleProxyFilterChange = useCallback((next: string) => {
@@ -664,6 +688,20 @@ export function QuotaPage() {
                 size="sm"
               />
             </div>
+            {/* 住宅 IP：只看绑定到代理池里被标记为住宅 IP 的代理的凭证（人工标记）。 */}
+            <button
+              type="button"
+              className={`${styles.toggleFilter} ${residentialOnly ? styles.toggleFilterActive : ''}`}
+              aria-pressed={residentialOnly}
+              title={t('quota_management.residential_filter_hint')}
+              onClick={() => handleResidentialOnlyChange(!residentialOnly)}
+            >
+              <IconNetwork size={14} />
+              <span>
+                {t('quota_management.residential_filter_label')}
+                {residentialCount > 0 ? ` ${residentialCount}` : ''}
+              </span>
+            </button>
             {/* 代理筛选：输入 IP / 端口片段模糊筛选，或点选某个代理精确锁定。 */}
             <div className={styles.proxySearch}>
               <ProxyFilterCombo

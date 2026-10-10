@@ -29,7 +29,7 @@ type proxyImportReport struct {
 // bare "user:pass@host:port" becomes socks5; IPv6 hosts must be bracketed ("[2001:db8::1]:1080").
 // seen holds proxy URLs that already exist and is extended with every accepted one, so duplicates
 // inside the text and against the pool are both reported as duplicates.
-func parseProxyImport(text, namePrefix string, seen map[string]struct{}) (entries []config.ProxyPoolEntry, rep proxyImportReport) {
+func parseProxyImport(text, namePrefix string, residential bool, seen map[string]struct{}) (entries []config.ProxyPoolEntry, rep proxyImportReport) {
 	namePrefix = strings.TrimSpace(namePrefix)
 	for i, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(strings.TrimPrefix(line, "\ufeff"))
@@ -56,7 +56,7 @@ func parseProxyImport(text, namePrefix string, seen map[string]struct{}) (entrie
 		if namePrefix != "" {
 			name = namePrefix + " " + name
 		}
-		entries = append(entries, config.ProxyPoolEntry{Name: name, ProxyURL: proxyURL})
+		entries = append(entries, config.ProxyPoolEntry{Name: name, ProxyURL: proxyURL, Residential: residential})
 		rep.Added++
 	}
 	return entries, rep
@@ -69,6 +69,8 @@ func (h *Handler) ImportProxyPool(c *gin.Context) {
 	var body struct {
 		Text       string `json:"text"`
 		NamePrefix string `json:"name-prefix"`
+		// Residential tags every imported entry as a residential IP.
+		Residential bool `json:"residential"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil || strings.TrimSpace(body.Text) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "text is required"})
@@ -85,7 +87,7 @@ func (h *Handler) ImportProxyPool(c *gin.Context) {
 	for _, entry := range h.cfg.ProxyPool {
 		seen[strings.TrimSpace(entry.ProxyURL)] = struct{}{}
 	}
-	entries, rep := parseProxyImport(body.Text, body.NamePrefix, seen)
+	entries, rep := parseProxyImport(body.Text, body.NamePrefix, body.Residential, seen)
 	if len(entries) == 0 {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "report": rep})
 		return

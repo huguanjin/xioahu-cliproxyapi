@@ -11,6 +11,8 @@ export type ProxyPoolEntry = {
   account?: string;
   'exit-ip'?: string;
   notes?: string;
+  /** 是否标记为住宅 IP（人工标记，不是自动识别）。 */
+  residential?: boolean;
   /** 当前绑定到该代理的凭证数量（只读，由服务端统计）。 */
   'bound-count'?: number;
 };
@@ -70,10 +72,14 @@ export const proxyPoolApi = {
   },
 
   /** 批量导入：text 每行一个代理，已存在的地址会被跳过。 */
-  async import(text: string, namePrefix?: string): Promise<ProxyImportReport> {
+  async import(
+    text: string,
+    options?: { namePrefix?: string; residential?: boolean }
+  ): Promise<ProxyImportReport> {
     const data = await apiClient.post<{ report?: ProxyImportReport }>('/proxy-pool/import', {
       text,
-      'name-prefix': namePrefix?.trim() || undefined,
+      'name-prefix': options?.namePrefix?.trim() || undefined,
+      residential: options?.residential === true ? true : undefined,
     });
     return data.report ?? { added: 0, duplicate: 0 };
   },

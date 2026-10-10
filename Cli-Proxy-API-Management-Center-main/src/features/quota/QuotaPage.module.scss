@@ -80,6 +80,36 @@
   width: 188px;
 }
 
+.toggleFilter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  transition:
+    color 0.2s ease,
+    border-color 0.2s ease,
+    background-color 0.2s ease;
+
+  &:hover {
+    color: var(--text-primary);
+  }
+}
+
+.toggleFilterActive {
+  color: var(--primary-color);
+  border-color: var(--primary-color);
+  background: var(--primary-10);
+}
+
 @include mobile {
   .tabsRow {
     flex-direction: column;

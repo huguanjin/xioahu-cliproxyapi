@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Modal } from '@/components/ui/Modal';
+import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import { IconPencil, IconPlus, IconSearch, IconTrash2 } from '@/components/ui/icons';
 import { SecondaryScreenShell } from '@/components/common/SecondaryScreenShell';
 import { useEdgeSwipeBack } from '@/hooks/useEdgeSwipeBack';
@@ -26,6 +27,7 @@ type EntryFormState = {
   account: string;
   exitIp: string;
   notes: string;
+  residential: boolean;
 };
 
 const EMPTY_FORM: EntryFormState = {
@@ -34,6 +36,7 @@ const EMPTY_FORM: EntryFormState = {
   account: '',
   exitIp: '',
   notes: '',
+  residential: false,
 };
 
 function entryToForm(entry: ProxyPoolEntry): EntryFormState {
@@ -43,6 +46,7 @@ function entryToForm(entry: ProxyPoolEntry): EntryFormState {
     account: entry.account ?? '',
     exitIp: entry['exit-ip'] ?? '',
     notes: entry.notes ?? '',
+    residential: entry.residential === true,
   };
 }
 
@@ -143,6 +147,7 @@ export function ProxyPoolPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState('');
   const [importPrefix, setImportPrefix] = useState('');
+  const [importResidential, setImportResidential] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importInvalid, setImportInvalid] = useState<ProxyImportReport['invalid']>([]);
   const importFileRef = useRef<HTMLInputElement | null>(null);
@@ -150,6 +155,7 @@ export function ProxyPoolPage() {
   const openImport = useCallback(() => {
     setImportText('');
     setImportPrefix('');
+    setImportResidential(false);
     setImportInvalid([]);
     setImportOpen(true);
   }, []);
@@ -182,7 +188,10 @@ export function ProxyPoolPage() {
     }
     setImporting(true);
     try {
-      const report = await proxyPoolApi.import(importText, importPrefix);
+      const report = await proxyPoolApi.import(importText, {
+        namePrefix: importPrefix,
+        residential: importResidential,
+      });
       const invalid = report.invalid ?? [];
       const message =
         t('proxy_pool.import_done', { added: report.added, duplicate: report.duplicate }) +
@@ -206,7 +215,7 @@ export function ProxyPoolPage() {
     } finally {
       setImporting(false);
     }
-  }, [importPrefix, importText, loadEntries, showNotification, t]);
+  }, [importPrefix, importResidential, importText, loadEntries, showNotification, t]);
 
   const openCreate = useCallback(() => {
     setEditingId(null);
@@ -241,6 +250,7 @@ export function ProxyPoolPage() {
           account: form.account.trim(),
           'exit-ip': form.exitIp.trim(),
           notes: form.notes.trim(),
+          residential: form.residential,
         });
       } else {
         const nextEntries: ProxyPoolEntry[] = [
@@ -252,6 +262,7 @@ export function ProxyPoolPage() {
             account: form.account.trim(),
             'exit-ip': form.exitIp.trim(),
             notes: form.notes.trim(),
+            residential: form.residential,
           },
         ];
         await proxyPoolApi.replace(nextEntries);
@@ -385,6 +396,11 @@ export function ProxyPoolPage() {
                     <span className={styles.boundBadge}>
                       {t('proxy_pool.bound_count', { count: entry['bound-count'] ?? 0 })}
                     </span>
+                    {entry.residential && (
+                      <span className={styles.residentialBadge}>
+                        {t('proxy_pool.residential_badge')}
+                      </span>
+                    )}
                     {probeResults[entry.id] && (
                       <span
                         className={probeResults[entry.id].ok ? styles.probeOk : styles.probeFail}
@@ -502,6 +518,12 @@ export function ProxyPoolPage() {
           onChange={(e) => setImportPrefix(e.target.value)}
           disabled={importing}
         />
+        <ToggleSwitch
+          checked={importResidential}
+          onChange={setImportResidential}
+          disabled={importing}
+          label={t('proxy_pool.import_residential')}
+        />
         {importInvalid && importInvalid.length > 0 && (
           <div className={styles.importInvalid} role="alert">
             <strong>{t('proxy_pool.import_invalid_title')}</strong>
@@ -566,6 +588,13 @@ export function ProxyPoolPage() {
           onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))}
           disabled={saving}
         />
+        <ToggleSwitch
+          checked={form.residential}
+          onChange={(value) => setForm((prev) => ({ ...prev, residential: value }))}
+          disabled={saving}
+          label={t('proxy_pool.residential_label')}
+        />
+        <div className="hint">{t('proxy_pool.residential_hint')}</div>
       </Modal>
     </SecondaryScreenShell>
   );

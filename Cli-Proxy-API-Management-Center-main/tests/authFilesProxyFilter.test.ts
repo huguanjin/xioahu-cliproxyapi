@@ -5,6 +5,7 @@ import {
   buildProxyFilterMatcher,
   buildProxyFilterOptions,
   entryMatchesProxySearch,
+  isResidentialProxyKey,
   sanitizeProxyFilterInput,
 } from '@/utils/proxyFilter';
 import type { AuthFileItem } from '@/types';
@@ -148,5 +149,27 @@ describe('isAuthFilesProxyFilter', () => {
     expect(isAuthFilesProxyFilter('u:p@1.2.3.4:1080')).toBe(false);
     expect(isAuthFilesProxyFilter('')).toBe(false);
     expect(isAuthFilesProxyFilter(5)).toBe(false);
+  });
+});
+
+describe('isResidentialProxyKey', () => {
+  const residential = new Set(['91.132.137.186:10003', '[2001:db8::1]:1080']);
+
+  test('matches a proxy tagged as residential, case-insensitively', () => {
+    expect(isResidentialProxyKey('91.132.137.186:10003', residential)).toBe(true);
+    expect(isResidentialProxyKey('[2001:DB8::1]:1080', residential)).toBe(true);
+  });
+
+  test('does not match an untagged proxy, a proxy outside the pool, or no proxy', () => {
+    expect(isResidentialProxyKey('1.2.3.4:80', residential)).toBe(false);
+    expect(isResidentialProxyKey('', residential)).toBe(false);
+    expect(isResidentialProxyKey('91.132.137.186:10003', new Set())).toBe(false);
+  });
+
+  test('the same gateway with another account still counts, because the key is host:port', () => {
+    const a = getAuthFileProxyKey(f('a', 'socks5://one:pw@91.132.137.186:10003'));
+    const b = getAuthFileProxyKey(f('b', 'socks5://two:pw@91.132.137.186:10003'));
+    expect(isResidentialProxyKey(a, residential)).toBe(true);
+    expect(isResidentialProxyKey(b, residential)).toBe(true);
   });
 });

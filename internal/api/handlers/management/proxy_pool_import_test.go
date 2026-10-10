@@ -1,6 +1,7 @@
 package management
 
 import (
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -26,7 +27,7 @@ func TestParseProxyImport(t *testing.T) {
 		"already:x@5.5.5.5:1\n" // exists in the pool
 
 	seen := map[string]struct{}{"socks5://already:x@5.5.5.5:1": {}}
-	entries, rep := parseProxyImport(text, "v6", seen)
+	entries, rep := parseProxyImport(text, "v6", true, seen)
 
 	if rep.Added != 3 || rep.Duplicate != 2 || len(rep.Invalid) != 3 {
 		t.Fatalf("report = %+v", rep)
@@ -100,5 +101,79 @@ func TestTestProxyPool_IPv6ProxyAddress(t *testing.T) {
 	res := probeProxy(t.Context(), "http://"+ln.Addr().String())
 	if !res.OK {
 		t.Fatalf("probe through %s failed: %s", ln.Addr(), res.Error)
+	}
+}
+
+func TestResidentialTag_ImportPatchAndListing(t *testing.T) {
+	t.Parallel()
+
+	h := &Handler{cfg: &config.Config{}, configFilePath: writeTestConfigFile(t)}
+	do := func(method, body string, handler func(*gin.Context)) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(method, "/v0/management/proxy-pool", strings.NewReader(body))
+		c.Request.Header.Set("Content-Type", "application/json")
+		handler(c)
+		return rec
+	}
+
+	// Imported with the tag, and a second batch without it.
+	if rec := do(http.MethodPost, `{"text":"u:p@1.1.1.1:1\nu:p@2.2.2.2:2","residential":true}`, h.ImportProxyPool); rec.Code != http.StatusOK {
+		t.Fatalf("import status = %d; body=%s", rec.Code, rec.Body.String())
+	}
+	if rec := do(http.MethodPost, `{"text":"u:p@3.3.3.3:3"}`, h.ImportProxyPool); rec.Code != http.StatusOK {
+		t.Fatalf("import status = %d; body=%s", rec.Code, rec.Body.String())
+	}
+	got := map[string]bool{}
+	for _, e := range h.cfg.ProxyPool {
+		got[e.Name] = e.Residential
+	}
+	if !got["1.1.1.1:1"] || !got["2.2.2.2:2"] || got["3.3.3.3:3"] {
+		t.Fatalf("residential after import = %v", got)
+	}
+
+	// PATCH flips it both ways and leaves other fields alone.
+	id := h.cfg.ProxyPool[2].ID
+	if rec := do(http.MethodPatch, `{"id":"`+id+`","value":{"residential":true}}`, h.PatchProxyPoolEntry); rec.Code != http.StatusOK {
+		t.Fatalf("patch status = %d; body=%s", rec.Code, rec.Body.String())
+	}
+	if e := h.cfg.ProxyPool[2]; !e.Residential || e.Name != "3.3.3.3:3" {
+		t.Fatalf("after patch on: %+v", e)
+	}
+	if rec := do(http.MethodPatch, `{"id":"`+id+`","value":{"residential":false}}`, h.PatchProxyPoolEntry); rec.Code != http.StatusOK {
+		t.Fatalf("patch status = %d", rec.Code)
+	}
+	if h.cfg.ProxyPool[2].Residential {
+		t.Fatalf("patch off did not clear the tag")
+	}
+
+	// A patch that does not mention the field must not clear it.
+	first := h.cfg.ProxyPool[0].ID
+	if rec := do(http.MethodPatch, `{"id":"`+first+`","value":{"notes":"x"}}`, h.PatchProxyPoolEntry); rec.Code != http.StatusOK {
+		t.Fatalf("patch status = %d", rec.Code)
+	}
+	if !h.cfg.ProxyPool[0].Residential {
+		t.Fatalf("unrelated patch cleared the residential tag")
+	}
+
+	// The listing reports it, and a whole-list PUT round-trips it.
+	rec := do(http.MethodGet, ``, h.GetProxyPool)
+	var listed struct {
+		Pool []struct {
+			Name        string `json:"name"`
+			Residential bool   `json:"residential"`
+		} `json:"proxy-pool"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(listed.Pool) != 3 || !listed.Pool[0].Residential || listed.Pool[2].Residential {
+		t.Fatalf("listing = %+v", listed.Pool)
+	}
+	if rec = do(http.MethodPut, rec.Body.String()[len(`{"proxy-pool":`):len(rec.Body.String())-1], h.PutProxyPool); rec.Code != http.StatusOK {
+		t.Fatalf("put status = %d; body=%s", rec.Code, rec.Body.String())
+	}
+	if !h.cfg.ProxyPool[0].Residential || !h.cfg.ProxyPool[1].Residential || h.cfg.ProxyPool[2].Residential {
+		t.Fatalf("PUT round trip lost the tag: %+v", h.cfg.ProxyPool)
 	}
 }

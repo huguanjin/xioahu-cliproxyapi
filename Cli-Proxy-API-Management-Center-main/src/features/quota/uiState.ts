@@ -18,6 +18,8 @@ import {
 export type QuotaUiState = {
   /** 'all' 或代理的 `host:port`（不含账号密码）。 */
   proxyFilter?: string;
+  /** 只看绑定到「住宅 IP」代理的凭证。 */
+  residentialOnly?: boolean;
   tab?: QuotaTabId;
   sortMode?: QuotaSortMode;
   availabilityFilter?: QuotaAvailabilityFilter;
@@ -45,6 +47,7 @@ export const readQuotaUiState = (): QuotaUiState | null => {
     if (!parsed || typeof parsed !== 'object') return null;
     return {
       proxyFilter: isAuthFilesProxyFilter(parsed.proxyFilter) ? parsed.proxyFilter : undefined,
+      residentialOnly: parsed.residentialOnly === true ? true : undefined,
       tab: isQuotaTabId(parsed.tab) ? parsed.tab : undefined,
       sortMode: isQuotaSortMode(parsed.sortMode) ? parsed.sortMode : undefined,
       availabilityFilter: isQuotaAvailabilityFilter(parsed.availabilityFilter)

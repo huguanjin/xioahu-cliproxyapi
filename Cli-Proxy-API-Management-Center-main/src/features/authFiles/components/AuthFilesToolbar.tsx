@@ -32,6 +32,9 @@ export type AuthFilesToolbarProps = {
   regionRestrictedOnly: boolean;
   regionRestrictedCount: number;
   onRegionRestrictedOnlyChange: (value: boolean) => void;
+  residentialOnly: boolean;
+  residentialCount: number;
+  onResidentialOnlyChange: (value: boolean) => void;
   proxyFilter: string;
   proxyFilterOptions: ProxyFilterOption[];
   onProxyFilterChange: (value: string) => void;
@@ -83,6 +86,9 @@ export function AuthFilesToolbar(props: AuthFilesToolbarProps) {
     regionRestrictedOnly,
     regionRestrictedCount,
     onRegionRestrictedOnlyChange,
+    residentialOnly,
+    residentialCount,
+    onResidentialOnlyChange,
     proxyFilter,
     proxyFilterOptions,
     onProxyFilterChange,
@@ -231,6 +237,24 @@ export function AuthFilesToolbar(props: AuthFilesToolbarProps) {
         <span>
           {t('auth_files.region_filter_label')}
           {regionRestrictedCount > 0 ? ` ${regionRestrictedCount}` : ''}
+        </span>
+      </button>
+
+      {/*
+        住宅 IP：只看绑定到代理池里被标记为住宅 IP 的代理的凭证。标记是人工的，
+        所以没有任何代理被标记时点开就是空，计数也不会显示。
+      */}
+      <button
+        type="button"
+        className={`${styles.proxyFilter} ${residentialOnly ? styles.proxyFilterActive : ''}`}
+        aria-pressed={residentialOnly}
+        title={t('auth_files.residential_filter_hint')}
+        onClick={() => onResidentialOnlyChange(!residentialOnly)}
+      >
+        <IconNetwork size={14} />
+        <span>
+          {t('auth_files.residential_filter_label')}
+          {residentialCount > 0 ? ` ${residentialCount}` : ''}
         </span>
       </button>
 

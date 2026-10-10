@@ -110,3 +110,15 @@ export function entryMatchesProxySearch(
     entry.notes,
   ].some((field) => (field ?? '').toLowerCase().includes(needle));
 }
+
+/**
+ * 「住宅 IP」筛选的谓词：凭证绑定的代理（host:port）是否被标记为住宅。
+ * 绑定了池外代理、或没绑定代理的凭证都不算 —— 池外代理没有标记可查，
+ * 把它们算进去等于替操作者做了没人做过的判断。
+ */
+export function isResidentialProxyKey(
+  proxyKey: string,
+  residentialKeys: ReadonlySet<string>
+): boolean {
+  return proxyKey !== '' && residentialKeys.has(proxyKey.toLowerCase());
+}

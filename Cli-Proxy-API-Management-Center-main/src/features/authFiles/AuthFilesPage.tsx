@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useProxyPoolKeys } from '@/hooks/useProxyPoolKeys';
-import { buildProxyFilterMatcher, buildProxyFilterOptions } from '@/utils/proxyFilter';
+import {
+  buildProxyFilterMatcher,
+  buildProxyFilterOptions,
+  isResidentialProxyKey,
+} from '@/utils/proxyFilter';
 import { useNavigate } from 'react-router-dom';
 import { useInterval } from '@/hooks/useInterval';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
@@ -107,6 +111,7 @@ export function AuthFilesPage() {
   const [healthFilterMode, setHealthFilterMode] = useState<AuthFilesHealthFilterMode>('all');
   const [noProxyOnly, setNoProxyOnly] = useState(false);
   const [regionRestrictedOnly, setRegionRestrictedOnly] = useState(false);
+  const [residentialOnly, setResidentialOnly] = useState(false);
   const [statusCodeFilter, setStatusCodeFilter] = useState<string>('all');
   const [proxyFilter, setProxyFilter] = useState<string>('');
   const [compactMode, setCompactMode] = useState(false);
@@ -272,6 +277,9 @@ export function AuthFilesPage() {
       if (typeof persisted.regionRestrictedOnly === 'boolean') {
         setRegionRestrictedOnly(persisted.regionRestrictedOnly);
       }
+      if (typeof persisted.residentialOnly === 'boolean') {
+        setResidentialOnly(persisted.residentialOnly);
+      }
       if (isAuthFilesHealthFilterMode(persisted.healthFilterMode)) {
         setHealthFilterMode(persisted.healthFilterMode);
       }
@@ -327,6 +335,7 @@ export function AuthFilesPage() {
       disabledOnly,
       noProxyOnly,
       regionRestrictedOnly,
+      residentialOnly,
       healthFilterMode,
       statusCodeFilter,
       proxyFilter,
@@ -347,6 +356,7 @@ export function AuthFilesPage() {
     maxPageSize,
     noProxyOnly,
     regionRestrictedOnly,
+    residentialOnly,
     healthFilterMode,
     statusCodeFilter,
     proxyFilter,
@@ -475,6 +485,11 @@ export function AuthFilesPage() {
     setPage(1);
   }, []);
 
+  const handleResidentialOnlyChange = useCallback((value: boolean) => {
+    setResidentialOnly(value);
+    setPage(1);
+  }, []);
+
   const handleStatusCodeFilterChange = useCallback((value: string) => {
     setStatusCodeFilter(value);
     setPage(1);
@@ -523,7 +538,7 @@ export function AuthFilesPage() {
 
   // 选项以代理池为准，再补上凭证里自带但不在池里的代理；数量统计全部凭证（不受其他
   // 筛选影响），所以下拉里的数字就是该代理名下的总数，与代理池页的「已绑定」对得上。
-  const proxyPoolKeys = useProxyPoolKeys();
+  const { keys: proxyPoolKeys, residentialKeys } = useProxyPoolKeys();
   const proxyFilterOptions = useMemo(
     () => buildProxyFilterOptions(getBoundProxyKeys(files), proxyPoolKeys),
     [files, proxyPoolKeys]
@@ -546,6 +561,9 @@ export function AuthFilesPage() {
         if (noProxyOnly && hasAuthFileProxy(file)) return false;
         if (regionRestrictedOnly && !isAuthFileLocationRestricted(file)) return false;
         if (!matchesProxy(getAuthFileProxyKey(file))) return false;
+        if (residentialOnly && !isResidentialProxyKey(getAuthFileProxyKey(file), residentialKeys)) {
+          return false;
+        }
         if (healthFilterMode === 'healthy' && !isAuthFileKnownHealthy(file)) return false;
         if (healthFilterMode === 'problem' && !isAuthFileKnownBad(file)) return false;
         if (healthFilterMode === 'untested' && !isAuthFileUntested(file)) return false;
@@ -564,6 +582,8 @@ export function AuthFilesPage() {
       matchesProxy,
       problemOnly,
       regionRestrictedOnly,
+      residentialKeys,
+      residentialOnly,
       statusCodeFilter,
     ]
   );
@@ -666,6 +686,16 @@ export function AuthFilesPage() {
   const regionRestrictedCount = useMemo(
     () => files.filter(isAuthFileLocationRestricted).length,
     [files]
+  );
+  // 同理：计数与「住宅 IP」筛选用同一个谓词，运行时虚拟凭证不计入。
+  const residentialCount = useMemo(
+    () =>
+      files.filter(
+        (file) =>
+          !isRuntimeOnlyAuthFile(file) &&
+          isResidentialProxyKey(getAuthFileProxyKey(file), residentialKeys)
+      ).length,
+    [files, residentialKeys]
   );
 
   /* ---------- 首屏卡片一次性级联入场 ----------
@@ -829,6 +859,9 @@ export function AuthFilesPage() {
           regionRestrictedOnly={regionRestrictedOnly}
           regionRestrictedCount={regionRestrictedCount}
           onRegionRestrictedOnlyChange={handleRegionRestrictedOnlyChange}
+          residentialOnly={residentialOnly}
+          residentialCount={residentialCount}
+          onResidentialOnlyChange={handleResidentialOnlyChange}
           proxyFilter={proxyFilter}
           proxyFilterOptions={proxyFilterOptions}
           onProxyFilterChange={handleProxyFilterChange}

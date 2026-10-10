@@ -574,6 +574,10 @@ type ProxyPoolEntry struct {
 
 	// Notes holds free-form operator notes about this entry.
 	Notes string `yaml:"notes,omitempty" json:"notes,omitempty"`
+
+	// Residential marks the proxy as a residential IP. It is an operator-set tag, not detected:
+	// the management UI uses it to filter credentials bound to residential proxies.
+	Residential bool `yaml:"residential,omitempty" json:"residential,omitempty"`
 }
 
 // GeminiModel describes a mapping between an alias and the actual upstream model name.

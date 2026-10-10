@@ -23,6 +23,8 @@ export type AuthFilesUiState = {
    * 「未绑定代理」一起用，圈出直连出口的那一批。
    */
   regionRestrictedOnly?: boolean;
+  /** 只看绑定到「住宅 IP」代理的凭证（代理池里人工标记）。与其他筛选叠加（AND）。 */
+  residentialOnly?: boolean;
   /**
    * 健康筛选：基于自检判定的「可正常调用 / 确定调不通 / 从未探测」。
    *

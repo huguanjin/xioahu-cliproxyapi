@@ -65,6 +65,8 @@ type proxyPoolEntryPatch struct {
 	Account  *string `json:"account"`
 	ExitIP   *string `json:"exit-ip"`
 	Notes    *string `json:"notes"`
+	// Residential toggles the residential-IP tag.
+	Residential *bool `json:"residential"`
 }
 
 // PatchProxyPoolEntry updates a single proxy pool entry, located by "id" (preferred) or
@@ -124,6 +126,9 @@ func (h *Handler) PatchProxyPoolEntry(c *gin.Context) {
 	}
 	if body.Value.Notes != nil {
 		entry.Notes = strings.TrimSpace(*body.Value.Notes)
+	}
+	if body.Value.Residential != nil {
+		entry.Residential = *body.Value.Residential
 	}
 	h.cfg.ProxyPool[targetIndex] = entry
 	h.cfg.SanitizeProxyPool()
