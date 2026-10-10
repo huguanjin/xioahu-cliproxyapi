@@ -22,12 +22,14 @@ export type QuotaBatchActionBarProps = {
   onInvertPage: () => void;
   onDeselectAll: () => void;
   onDownload: () => void;
+  onDisable: () => void;
   onDelete: () => void;
 };
 
 /**
  * 额度页悬浮批量操作条：认证文件页 BatchActionBar 的精简版
- * （保留选择相关操作 + 下载 + 删除，没有启用/停用/编辑）。
+ * （保留选择相关操作 + 下载 + 停用 + 删除，没有启用/编辑：停用后凭证就从额度页消失，
+ * 想恢复要去认证文件页，所以这里不放「启用」）。
  *
  * 下载是有意加在这里的：额度页本身就是「挑凭证」的场所 —— 你在这里发现
  * 一批取不到额度的凭证，要下载核对时不该被赶回认证文件页重新找一遍。
@@ -44,6 +46,7 @@ export function QuotaBatchActionBar(props: QuotaBatchActionBarProps) {
     onInvertPage,
     onDeselectAll,
     onDownload,
+    onDisable,
     onDelete,
   } = props;
   const { t } = useTranslation();
@@ -186,6 +189,14 @@ export function QuotaBatchActionBar(props: QuotaBatchActionBarProps) {
             disabled={disableControls || selectionCount === 0}
           >
             {t('auth_files.batch_download')}
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={onDisable}
+            disabled={disableControls || selectionCount === 0}
+          >
+            {t('auth_files.batch_disable')}
           </Button>
           <Button
             variant="danger"

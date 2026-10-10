@@ -31,6 +31,7 @@ import { QuotaHeader } from './components/QuotaHeader';
 import { QuotaCard } from './components/QuotaCard';
 import { QuotaBatchActionBar } from './components/QuotaBatchActionBar';
 import { QuotaScanDialog } from './components/QuotaScanDialog';
+import { pruneQuotaForDisabled } from './hooks/useQuotaScan';
 import { QuotaTimeline } from './components/QuotaTimeline';
 import {
   CARD_ENTRANCE_BUDGET_MS,
@@ -532,6 +533,62 @@ export function QuotaPage() {
     deselectAll();
   }, [deselectAll, selectedFiles, showNotification, t]);
 
+  // 停用是一次 batchPatchFields，不是逐个 setStatus：选中几百个时后者是几百次请求。
+  // 成功的凭证立刻在本页标成已停用 —— 额度页只列未停用的凭证，所以它们会直接从
+  // 列表消失；同时清掉它们的额度缓存（与一键巡检里的停用同一个 pruneQuotaForDisabled）。
+  const [disabling, setDisabling] = useState(false);
+  const handleBatchDisable = useCallback(() => {
+    const names = Array.from(selectedFiles);
+    if (names.length === 0 || disabling) return;
+
+    showConfirmation({
+      title: t('quota_management.scan_disable_title'),
+      message: t('quota_management.scan_disable_confirm', { count: names.length }),
+      variant: 'danger',
+      confirmText: t('common.confirm'),
+      onConfirm: async () => {
+        setDisabling(true);
+        try {
+          const outcome = await authFilesApi.batchPatchFields(names, { disabled: true });
+          const disabledNames = outcome.files ?? [];
+          if (disabledNames.length > 0) {
+            const done = new Set(disabledNames);
+            setFiles((prev) =>
+              prev.map((file) => (done.has(file.name) ? { ...file, disabled: true } : file))
+            );
+            setSelectedFiles((prev) => {
+              const next = new Set(prev);
+              done.forEach((name) => next.delete(name));
+              return next;
+            });
+            pruneQuotaForDisabled(disabledNames);
+            notifyAuthFilesChanged();
+          }
+
+          if (!outcome.failed || outcome.failed.length === 0) {
+            showNotification(
+              t('quota_management.scan_disable_success', { count: disabledNames.length }),
+              'success'
+            );
+          } else {
+            showNotification(
+              t('quota_management.scan_disable_partial', {
+                success: disabledNames.length,
+                failed: outcome.failed.length,
+              }),
+              'warning'
+            );
+          }
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : '';
+          showNotification(`${t('notification.update_failed')}: ${message}`, 'error');
+        } finally {
+          setDisabling(false);
+        }
+      },
+    });
+  }, [disabling, selectedFiles, showConfirmation, showNotification, t]);
+
   const handleBatchDelete = useCallback(() => {
     const names = Array.from(selectedFiles);
     if (names.length === 0) return;
@@ -883,12 +940,13 @@ export function QuotaPage() {
         selectionCount={selectedFiles.size}
         selectablePageCount={pageItems.length}
         selectableFilteredCount={filteredEntries.length}
-        disableControls={disableControls}
+        disableControls={disableControls || disabling}
         onSelectPage={selectPage}
         onSelectFiltered={selectFiltered}
         onInvertPage={invertPage}
         onDeselectAll={deselectAll}
         onDownload={() => void handleBatchDownload()}
+        onDisable={handleBatchDisable}
         onDelete={handleBatchDelete}
       />
 
